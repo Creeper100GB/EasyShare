@@ -3,16 +3,19 @@
   <ItemGroup>
     <ProjectReference Include="..\EasyShare.Core\EasyShare.Core.csproj" />
     <ProjectReference Include="..\EasyShare.Transport\EasyShare.Transport.csproj" />
+    <ProjectReference Include="..\EasyShare.Shell\EasyShare.Shell.csproj" />
   </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="H.NotifyIcon.Wpf" Version="2.4.1" />
+    <PackageReference Include="QRCoder" Version="1.8.0" />
     <PackageReference Include="wpf-ui" Version="3.0.5" />
   </ItemGroup>
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0-windows</TargetFramework>
+    <TargetPlatform>windows</TargetPlatform>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>

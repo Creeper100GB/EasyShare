@@ -11,6 +11,7 @@ public class DeviceViewModel : INotifyPropertyChanged
     private string _ipAddress = string.Empty;
     private DeviceType _deviceType;
     private string _fingerprint = string.Empty;
+    private bool _isSelected;
 
     public string Alias
     {
@@ -40,6 +41,12 @@ public class DeviceViewModel : INotifyPropertyChanged
     {
         get => _fingerprint;
         set => SetProperty(ref _fingerprint, value);
+    }
+
+    public bool IsSelected
+    {
+        get => _isSelected;
+        set => SetProperty(ref _isSelected, value);
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;

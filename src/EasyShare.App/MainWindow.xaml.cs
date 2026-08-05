@@ -2,11 +2,14 @@ using System.Collections.ObjectModel;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.IO;
+using System.Net;
+using System.Net.Sockets;
 using System.Security.Cryptography.X509Certificates;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using EasyShare.App.ViewModels;
+using EasyShare.App.Views;
 using EasyShare.Core.Config;
 using EasyShare.Core.Crypto;
 using EasyShare.Core.Discovery;
@@ -30,12 +33,14 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
 
     public ObservableCollection<DeviceViewModel> Devices { get; } = new();
     public ObservableCollection<TransferViewModel> Transfers { get; } = new();
+    public ObservableCollection<HistoryEntry> History { get; } = new();
 
     private AppConfig _config = null!;
     private X509Certificate2? _certificate;
     private string _fingerprint = string.Empty;
     private readonly string _configPath;
     private bool _isCleanedUp;
+    private DeviceViewModel? _selectedDevice;
 
     public MainWindow()
     {
@@ -47,11 +52,13 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
 
         DeviceList.ItemsSource = Devices;
         TransferList.ItemsSource = Transfers;
+        HistoryList.ItemsSource = History;
 
         LoadConfig();
         InitializeServices();
         SetupTrayIcon();
         StartServices();
+        ApplyTheme(_config.Theme);
 
         DropZone.DragOver += DropZone_DragOver;
     }
@@ -71,10 +78,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
                 SaveConfig();
             }
         }
-        catch
-        {
-            _config = new AppConfig();
-        }
+        catch { _config = new AppConfig(); }
     }
 
     private void SaveConfig()
@@ -83,12 +87,9 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         {
             var dir = Path.GetDirectoryName(_configPath)!;
             Directory.CreateDirectory(dir);
-            var json = System.Text.Json.JsonSerializer.Serialize(_config);
-            File.WriteAllText(_configPath, json);
+            File.WriteAllText(_configPath, System.Text.Json.JsonSerializer.Serialize(_config));
         }
-        catch
-        {
-        }
+        catch { }
     }
 
     private void InitializeServices()
@@ -109,8 +110,13 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
     private void StartServices()
     {
         _discovery?.Start();
-        _server?.Start(_config.HttpPort);
+        _server?.Start(_config.HttpPort, _config.DeviceAlias, _fingerprint);
         StatusText.Text = "Bereit";
+    }
+
+    public void ApplyTheme(Theme theme)
+    {
+        _config.Theme = theme;
     }
 
     private void SetupTrayIcon()
@@ -128,7 +134,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         Resources.Add("TrayIcon", _trayIcon);
     }
 
-    private static System.Drawing.Icon GenerateTrayIcon()
+    private static Icon GenerateTrayIcon()
     {
         using var bitmap = new Bitmap(32, 32);
         using var g = Graphics.FromImage(bitmap);
@@ -140,12 +146,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
 
         using var font = new Font(new FontFamily("Segoe UI"), 11, System.Drawing.FontStyle.Bold);
         using var textBrush = new SolidBrush(Color.White);
-        var sf = new StringFormat
-        {
-            Alignment = StringAlignment.Center,
-            LineAlignment = StringAlignment.Center,
-            Trimming = StringTrimming.None,
-        };
+        var sf = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
         g.DrawString("ES", font, textBrush, new RectangleF(0, 0, 32, 32), sf);
 
         return System.Drawing.Icon.FromHandle(bitmap.GetHicon());
@@ -178,16 +179,8 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
 
     private void ToggleWindowVisibility()
     {
-        if (IsVisible)
-        {
-            Hide();
-        }
-        else
-        {
-            Show();
-            WindowState = WindowState.Normal;
-            Activate();
-        }
+        if (IsVisible) { Hide(); }
+        else { Show(); WindowState = WindowState.Normal; Activate(); }
     }
 
     private void ShutdownApplication()
@@ -223,61 +216,68 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         {
             var existing = Devices.FirstOrDefault(d => d.Fingerprint == fingerprint);
             if (existing is not null)
+            {
                 Devices.Remove(existing);
+                if (_selectedDevice == existing)
+                    _selectedDevice = null;
+            }
 
             StatusText.Text = Devices.Count > 0
                 ? $"{Devices.Count} Gerät(e) gefunden"
                 : "Bereit";
+            UpdateSelectedDeviceText();
         });
+    }
+
+    private void DeviceCard_Click(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is FrameworkElement fe && fe.DataContext is DeviceViewModel device)
+        {
+            _selectedDevice = device;
+            UpdateSelectedDeviceText();
+
+            foreach (var item in DeviceList.Items)
+            {
+                if (item is DeviceViewModel d)
+                    d.IsSelected = d.Fingerprint == device.Fingerprint;
+            }
+        }
+    }
+
+    private void UpdateSelectedDeviceText()
+    {
+        SelectedDeviceText.Text = _selectedDevice is not null
+            ? $"Ziel: {_selectedDevice.Alias}"
+            : "Kein Zielgerät ausgewählt";
     }
 
     private void DropZone_DragOver(object sender, DragEventArgs e)
     {
         if (e.Data.GetDataPresent(DataFormats.FileDrop))
-        {
-            e.Effects = DragDropEffects.Copy;
-            e.Handled = true;
-        }
+        { e.Effects = DragDropEffects.Copy; e.Handled = true; }
         else
-        {
-            e.Effects = DragDropEffects.None;
-        }
+        { e.Effects = DragDropEffects.None; }
     }
 
     private void DropZone_Drop(object sender, DragEventArgs e)
     {
         if (e.Data.GetData(DataFormats.FileDrop) is string[] files && files.Length > 0)
         {
-            var selectedDevice = Devices.FirstOrDefault();
-            if (selectedDevice is null)
-            {
-                StatusText.Text = "Kein Gerät in der Nähe gefunden";
-                return;
-            }
+            if (_selectedDevice is null)
+            { StatusText.Text = "Bitte zuerst ein Zielgerät auswählen"; return; }
 
-            SendFiles(files, selectedDevice);
+            SendFiles(files, _selectedDevice);
         }
     }
 
     private void SelectFilesButton_Click(object sender, RoutedEventArgs e)
     {
-        var selectedDevice = Devices.FirstOrDefault();
-        if (selectedDevice is null)
-        {
-            StatusText.Text = "Kein Gerät in der Nähe gefunden";
-            return;
-        }
+        if (_selectedDevice is null)
+        { StatusText.Text = "Bitte zuerst ein Zielgerät auswählen"; return; }
 
-        var dialog = new OpenFileDialog
-        {
-            Multiselect = true,
-            Title = "Dateien auswählen",
-        };
-
+        var dialog = new OpenFileDialog { Multiselect = true, Title = "Dateien auswählen" };
         if (dialog.ShowDialog() == true)
-        {
-            SendFiles(dialog.FileNames, selectedDevice);
-        }
+            SendFiles(dialog.FileNames, _selectedDevice);
     }
 
     private void SendFiles(string[] filePaths, DeviceViewModel target)
@@ -286,25 +286,17 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
 
         var deviceInfo = new DeviceInfo
         {
-            Alias = target.Alias,
-            DeviceModel = target.DeviceModel,
-            DeviceType = target.DeviceType,
-            Fingerprint = target.Fingerprint,
-            IpAddress = target.IpAddress,
-            Port = _config.HttpPort,
+            Alias = target.Alias, DeviceModel = target.DeviceModel,
+            DeviceType = target.DeviceType, Fingerprint = target.Fingerprint,
+            IpAddress = target.IpAddress, Port = _config.HttpPort,
         };
 
         var session = _sessionManager.CreateSendSession(deviceInfo, filePaths.ToList());
 
         var transfer = new TransferViewModel
         {
-            FileName = filePaths.Length == 1
-                ? Path.GetFileName(filePaths[0])
-                : $"{filePaths.Length} Dateien an {target.Alias}",
-            Progress = 0,
-            SpeedText = string.Empty,
-            StatusText = "Wird vorbereitet...",
-            Status = TransferStatus.Pending,
+            FileName = filePaths.Length == 1 ? Path.GetFileName(filePaths[0]) : $"{filePaths.Length} Dateien an {target.Alias}",
+            Progress = 0, SpeedText = string.Empty, StatusText = "Wird vorbereitet...", Status = TransferStatus.Pending,
         };
 
         Dispatcher.Invoke(() => Transfers.Add(transfer));
@@ -337,15 +329,15 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
                 StatusText.Text = status == TransferStatus.Active
                     ? $"Sende an {target.Alias}..."
                     : $"Übertragung: {transfer.StatusText}";
+
+                if (status == TransferStatus.Completed)
+                    History.Insert(0, new HistoryEntry { FileName = transfer.FileName, Direction = "→", Timestamp = DateTime.Now });
             });
         };
 
         _ = Task.Run(async () =>
         {
-            try
-            {
-                await fileSender.SendAsync(session);
-            }
+            try { await fileSender.SendAsync(session); }
             catch (Exception ex)
             {
                 Dispatcher.Invoke(() =>
@@ -364,35 +356,29 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         {
             if (_config.AutoAcceptTrusted && _trustStore?.IsTrusted(e.Fingerprint) == true)
             {
-                AcceptUpload(e);
+                AcceptUpload(e, false);
                 return;
             }
 
-            var result = MessageBox.Show(
-                $"{e.Sender.Alias} möchte {e.Files.Count} Datei(en) senden. Annehmen?",
-                "Eingehende Übertragung",
-                MessageBoxButton.YesNo,
-                MessageBoxImage.Question);
+            var dialog = new ReceiveDialog(e.Sender.Alias ?? "Unbekannt", e.Files, e.Fingerprint);
+            dialog.Owner = this;
+            dialog.ShowDialog();
 
-            if (result == MessageBoxResult.Yes)
+            if (dialog.Accepted)
             {
-                AcceptUpload(e);
-                _trustStore?.AddTrusted(e.Fingerprint, e.Sender.Alias);
+                AcceptUpload(e, dialog.TrustDevice);
+                if (dialog.TrustDevice)
+                    _trustStore?.AddTrusted(e.Fingerprint, e.Sender.Alias ?? "Unbekannt");
             }
         });
     }
 
-    private void AcceptUpload(UploadRequestEventArgs e)
+    private void AcceptUpload(UploadRequestEventArgs e, bool addToHistory)
     {
         var transfer = new TransferViewModel
         {
-            FileName = e.Files.Count == 1
-                ? e.Files[0].FileName
-                : $"{e.Files.Count} Dateien von {e.Sender.Alias}",
-            Progress = 0,
-            SpeedText = string.Empty,
-            StatusText = "Empfang wird vorbereitet...",
-            Status = TransferStatus.Active,
+            FileName = e.Files.Count == 1 ? e.Files[0].FileName : $"{e.Files.Count} Dateien von {e.Sender.Alias}",
+            Progress = 0, SpeedText = string.Empty, StatusText = "Empfang wird vorbereitet...", Status = TransferStatus.Active,
         };
 
         Transfers.Add(transfer);
@@ -407,17 +393,50 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
                 transfer.Status = TransferStatus.Completed;
                 transfer.StatusText = "Abgeschlossen";
                 StatusText.Text = $"Empfang von {e.Sender.Alias} abgeschlossen";
+
+                if (addToHistory)
+                    History.Insert(0, new HistoryEntry { FileName = transfer.FileName, Direction = "←", Timestamp = DateTime.Now });
             });
         });
     }
 
+    private void QrButton_Click(object sender, RoutedEventArgs e)
+    {
+        var localIp = GetLocalIpAddress();
+        var window = new QrCodeWindow(localIp, _config.HttpPort);
+        window.Owner = this;
+        window.ShowDialog();
+    }
+
+    private static string GetLocalIpAddress()
+    {
+        try
+        {
+            using var socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, 0);
+            socket.Connect("8.8.8.8", 53);
+            if (socket.LocalEndPoint is IPEndPoint ep)
+                return ep.Address.ToString();
+        }
+        catch { }
+
+        return IPAddress.Loopback.ToString();
+    }
+
+    private void SettingsButton_Click(object sender, RoutedEventArgs e)
+    {
+        var window = new SettingsWindow(_config, _configPath);
+        window.Owner = this;
+        window.ShowDialog();
+
+        if (_config.DeviceAlias != window.AliasTextBox.Text || _config.HttpPort != (int.TryParse(window.PortBox.Text, out var p) ? p : 53317))
+        {
+            LoadConfig();
+        }
+    }
+
     private void Window_Closing(object? sender, System.ComponentModel.CancelEventArgs e)
     {
-        if (!_isCleanedUp)
-        {
-            e.Cancel = true;
-            Hide();
-        }
+        if (!_isCleanedUp) { e.Cancel = true; Hide(); }
     }
 
     public void Cleanup()
@@ -432,14 +451,18 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         _certificate?.Dispose();
     }
 
-    private static string FormatBytes(double bytes)
+    private static string FormatBytes(double bytes) => bytes switch
     {
-        return bytes switch
-        {
-            >= 1_000_000_000 => $"{bytes / 1_000_000_000:F1} GB",
-            >= 1_000_000 => $"{bytes / 1_000_000:F1} MB",
-            >= 1_000 => $"{bytes / 1_000:F1} KB",
-            _ => $"{bytes:F0} B",
-        };
-    }
+        >= 1_000_000_000 => $"{bytes / 1_000_000_000:F1} GB",
+        >= 1_000_000 => $"{bytes / 1_000_000:F1} MB",
+        >= 1_000 => $"{bytes / 1_000:F1} KB",
+        _ => $"{bytes:F0} B",
+    };
+}
+
+public class HistoryEntry
+{
+    public string FileName { get; set; } = "";
+    public string Direction { get; set; } = "";
+    public DateTime Timestamp { get; set; }
 }
