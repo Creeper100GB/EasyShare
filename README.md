@@ -1,65 +1,70 @@
 # EasyShare
 
-Native Windows file sharing app with LocalSend protocol compatibility.
+Native Windows file sharing app with LocalSend protocol compatibility. Sendet und empfängt Dateien verschlüsselt (TLS) zwischen Geräten im selben Netzwerk – ohne Cloud, ohne Konto.
 
-## Features
+## Installation
 
-- Drag & drop file sharing between Windows devices
-- LocalSend v2.1 protocol (compatible with LocalSend on Mac/Linux/Android/iOS)
-- Explorer right-click context menu integration
-- System tray with quick-share
-- QR code / browser mode for zero-install receiving (any device)
-- BLE device discovery + pairing
-- TLS encrypted transfers
-- Transfer history with resume support
-- Fluent / Mica UI (Windows 11 style)
-- Dark / Light / Auto theme
-- i18n: German + English
+### Empfohlen – ein Befehl in PowerShell
 
-## Transports
+```powershell
+irm https://raw.githubusercontent.com/Creeper100GB/EasyShare/master/install.ps1 | iex
+```
 
-| Transport | Status |
-|---|---|
-| Wi-Fi (local) | Core |
-| Ethernet / Thunderbolt Bridge | Automatic (any IP interface) |
-| BLE Discovery + Pairing | Phase 3 |
-| Browser / QR Mode | Phase 3 |
+Das lädt die neueste stabile Version, installiert sie nach `%LOCALAPPDATA%\EasyShare`, erstellt eine
+Desktop-Verknüpfung und startet die App. Kein .NET-Runtime nötig (self-contained Build).
 
-## Tech Stack
+### Manuell
 
-- .NET 8 (LTS)
-- WPF + Wpf.Ui (Fluent/Mica)
-- Kestrel (ASP.NET Core) HTTP server
-- Makaretu.Dns.Multicast (mDNS)
-- Windows.Devices.Bluetooth.Advertisement (BLE, WinRT native)
-- H.NotifyIcon.Wpf (tray)
-- Microsoft.Data.Sqlite (config + history)
+Lade das neueste ZIP von der [Releases-Seite](https://github.com/Creeper100GB/EasyShare/releases/latest),
+entpacke es und starte `EasyShare.exe`.
 
-## Build
+### Nightly-Build
+
+Bei jedem Push auf `master` baut [GitHub Actions](./.github/workflows/build-release.yml) automatisch einen
+`nightly`-Build und veröffentlicht ihn als Prerelease. Für die neuesten (evtl. instabilen) Änderungen.
+
+## Build aus dem Quellcode
 
 ```powershell
 dotnet restore
-dotnet build src/EasyShare.App
+dotnet publish src/EasyShare.App/EasyShare.App.csproj -c Release -r win-x64 --self-contained -o publish
 ```
 
-## Run
+## Features
 
-```powershell
-dotnet run --project src/EasyShare.App
-```
+- Drag & drop Dateiübertragung zwischen Windows-Geräten (LocalSend v2.1 Protokoll)
+- TLS-verschlüsselte Übertragungen (Fingerprint-Pinning)
+- Discovery im lokalen Netzwerk (multicast)
+- QR-Code / Browser-Modus zum Empfangen auf jedem Gerät (zero-install)
+- System-Tray
+- Explorer-Kontextmenü-Integration
+- Fluent / Mica UI (Windows 11 Stil)
+- Dark / Light / Auto Theme
+- Eingebauter Auto-Updater über GitHub Releases
 
-## Project Structure
+## Tech Stack
+
+- .NET 10 (WPF, net10.0-windows)
+- WPF + Wpf.Ui (Fluent/Mica)
+- Kestrel (ASP.NET Core) HTTP-Server mit TLS
+- H.NotifyIcon.Wpf (Tray)
+- QRCoder
+- SQLite (Config + Verlauf)
+
+## Projektstruktur
 
 ```
 src/
-  EasyShare.Core/        Protocol models, config, crypto
-  EasyShare.Transport/   HTTP server, mDNS, BLE, sessions
+  EasyShare.Core/        Protokollmodelle, Config, Crypto, Trust
+  EasyShare.Transport/   HTTP-Server (LocalSend v2), Discovery, FileSender
   EasyShare.App/         WPF GUI (Wpf.Ui Fluent/Mica)
-  EasyShare.Shell/       Explorer context menu
-  EasyShare.Cli/         CLI entry for context menu
-tests/
-  EasyShare.Core.Tests/
+  EasyShare.Shell/       Explorer-Kontextmenü
 ```
+
+## CI
+
+[`.github/workflows/build-release.yml`](./.github/workflows/build-release.yml) publiziert bei jedem `v*`-Tag
+ein Release und bei jedem Push auf `master` einen Nightly-Prerelease.
 
 ## License
 
