@@ -14,6 +14,8 @@ public class MulticastDiscovery : IDisposable
     private CancellationTokenSource? _cts;
     private readonly Dictionary<string, DateTime> _knownDevices = new();
     private Timer? _cleanupTimer;
+    private Timer? _announceTimer;
+    private DeviceAnnouncement? _self;
 
     public event EventHandler<DeviceInfo>? DeviceFound;
     public event EventHandler<string>? DeviceLost;
@@ -24,8 +26,9 @@ public class MulticastDiscovery : IDisposable
         _port = port;
     }
 
-    public void Start()
+    public void Start(DeviceAnnouncement? self = null)
     {
+        _self = self;
         _cts = new CancellationTokenSource();
         _client = new UdpClient();
         _client.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
@@ -33,6 +36,32 @@ public class MulticastDiscovery : IDisposable
         _client.JoinMulticastGroup(IPAddress.Parse(_multicastAddress));
         _cleanupTimer = new Timer(CleanupStaleDevices, null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
         Task.Run(() => ListenAsync(_cts.Token));
+
+        if (_self is not null)
+        {
+            Announce();
+            _announceTimer = new Timer(_ => Announce(), null, TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10));
+        }
+    }
+
+    public void UpdateSelf(DeviceAnnouncement self)
+    {
+        _self = self;
+    }
+
+    private void Announce()
+    {
+        try
+        {
+            var self = _self;
+            if (self is null || _client is null) return;
+            var json = JsonSerializer.Serialize(self);
+            var bytes = Encoding.UTF8.GetBytes(json);
+            _client.Send(bytes, bytes.Length, new IPEndPoint(IPAddress.Parse(_multicastAddress), _port));
+        }
+        catch
+        {
+        }
     }
 
     private async Task ListenAsync(CancellationToken ct)
@@ -93,6 +122,7 @@ public class MulticastDiscovery : IDisposable
         _cts?.Cancel();
         _client?.Close();
         _cleanupTimer?.Dispose();
+        _announceTimer?.Dispose();
     }
 
     public void Dispose()

@@ -13,6 +13,9 @@ public record FileEntry
     [JsonPropertyName("size")]
     public long Size { get; init; }
 
+    [JsonIgnore]
+    public string? LocalFilePath { get; init; }
+
     [JsonPropertyName("fileType")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? FileType { get; init; }

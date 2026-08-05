@@ -25,6 +25,7 @@ public class SessionManager
                 Id = id,
                 FileName = fileInfo.Name,
                 Size = fileInfo.Length,
+                LocalFilePath = path,
             });
         }
 

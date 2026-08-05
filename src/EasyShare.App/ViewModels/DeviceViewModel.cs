@@ -11,12 +11,19 @@ public class DeviceViewModel : INotifyPropertyChanged
     private string _ipAddress = string.Empty;
     private DeviceType _deviceType;
     private string _fingerprint = string.Empty;
+    private int _port = 53317;
     private bool _isSelected;
 
     public string Alias
     {
         get => _alias;
         set => SetProperty(ref _alias, value);
+    }
+
+    public int Port
+    {
+        get => _port;
+        set => SetProperty(ref _port, value);
     }
 
     public string DeviceModel
