@@ -4,10 +4,12 @@ using System.Drawing.Drawing2D;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
+using System.Reflection;
 using System.Security.Cryptography.X509Certificates;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using EasyShare.Core.Services;
 using EasyShare.App.ViewModels;
 using EasyShare.App.Views;
 using EasyShare.Core.Config;
@@ -40,6 +42,8 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
     private string _fingerprint = string.Empty;
     private readonly string _configPath;
     private bool _isCleanedUp;
+    private UpdateService? _updateService;
+    private UpdateInfo? _pendingUpdate;
     private DeviceViewModel? _selectedDevice;
 
     public MainWindow()
@@ -59,6 +63,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         SetupTrayIcon();
         StartServices();
         ApplyTheme(_config.Theme);
+        CheckForUpdatesAsync();
 
         DropZone.DragOver += DropZone_DragOver;
     }
@@ -308,7 +313,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
             Dispatcher.Invoke(() =>
             {
                 transfer.Progress = progress;
-                transfer.SpeedText = $"{FormatBytes(fileSender.CurrentBytesPerSecond)}/s";
+                transfer.SpeedText = $"{FormatBytes((long)fileSender.CurrentBytesPerSecond)}/s";
                 transfer.Status = TransferStatus.Active;
                 transfer.StatusText = "Übertragung läuft...";
             });
@@ -451,13 +456,62 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         _certificate?.Dispose();
     }
 
-    private static string FormatBytes(double bytes) => bytes switch
+    private void CheckForUpdatesAsync()
     {
-        >= 1_000_000_000 => $"{bytes / 1_000_000_000:F1} GB",
-        >= 1_000_000 => $"{bytes / 1_000_000:F1} MB",
-        >= 1_000 => $"{bytes / 1_000:F1} KB",
-        _ => $"{bytes:F0} B",
-    };
+        var version = typeof(MainWindow).Assembly.GetName().Version?.ToString() ?? "1.0.0";
+        _updateService = new UpdateService(version);
+        _updateService.UpdateCheckCompleted += OnUpdateCheckCompleted;
+        _ = Task.Run(() => _updateService.CheckForUpdateAsync());
+    }
+
+    private void OnUpdateCheckCompleted(UpdateInfo info)
+    {
+        Dispatcher.Invoke(() =>
+        {
+            if (info.UpdateAvailable)
+            {
+                _pendingUpdate = info;
+                UpdateVersionText.Text = $"v{info.LatestVersion} -> Aktualisieren und Neustart";
+                UpdateBanner.Visibility = Visibility.Visible;
+            }
+        });
+    }
+
+    private void UpdateButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_pendingUpdate is null) return;
+        UpdateButton.IsEnabled = false;
+        UpdateButton.Content = "Wird heruntergeladen...";
+        StatusText.Text = "Lade Update herunter...";
+
+        var progress = new Progress<int>(p => StatusText.Text = $"Lade Update herunter... {p}%");
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await _updateService!.DownloadAndApplyAsync(_pendingUpdate!.DownloadUrl, progress);
+            }
+            catch (Exception ex)
+            {
+                Dispatcher.Invoke(() =>
+                {
+                    UpdateButton.IsEnabled = true;
+                    UpdateButton.Content = "Aktualisieren";
+                    StatusText.Text = $"Update fehlgeschlagen: {ex.Message}";
+                });
+            }
+        });
+    }
+    private static string FormatBytes(long bytes)
+    {
+        var gb = bytes / 1_000_000_000.0;
+        var mb = bytes / 1_000_000.0;
+        var kb = bytes / 1_000.0;
+        if (gb >= 1) return $"{gb:F1} GB";
+        if (mb >= 1) return $"{mb:F1} MB";
+        if (kb >= 1) return $"{kb:F1} KB";
+        return $"{bytes:F0} B";
+    }
 }
 
 public class HistoryEntry

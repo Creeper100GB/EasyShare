@@ -66,6 +66,7 @@
   <Grid>
     <Grid.RowDefinitions>
       <RowDefinition Height="Auto"/>
+      <RowDefinition Height="Auto"/>
       <RowDefinition Height="*"/>
     </Grid.RowDefinitions>
 
@@ -81,7 +82,24 @@
       </StackPanel>
     </Grid>
 
-    <Grid Grid.Row="1" Margin="8,0,8,8">
+    <Border Grid.Row="1" x:Name="UpdateBanner" Visibility="Collapsed"
+            Background="#1e3a5f" Padding="12,8" Margin="8,0,8,0" CornerRadius="6"
+            BorderBrush="#2563eb" BorderThickness="1">
+      <Grid>
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="*"/>
+          <ColumnDefinition Width="Auto"/>
+        </Grid.ColumnDefinitions>
+        <StackPanel Grid.Column="0">
+          <TextBlock Text="Neue Version verfügbar" FontSize="13" FontWeight="SemiBold" Foreground="#93c5fd"/>
+          <TextBlock x:Name="UpdateVersionText" FontSize="11" Foreground="#93c5fd" Opacity="0.7"/>
+        </StackPanel>
+        <Button Grid.Column="1" x:Name="UpdateButton" Content="Aktualisieren" Padding="12,4"
+                Click="UpdateButton_Click" FontSize="12"/>
+      </Grid>
+    </Border>
+
+    <Grid Grid.Row="2" Margin="8,0,8,8">
       <Grid.ColumnDefinitions>
         <ColumnDefinition Width="260"/>
         <ColumnDefinition Width="*"/>
