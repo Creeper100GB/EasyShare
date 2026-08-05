@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
@@ -16,6 +17,7 @@ public class MulticastDiscovery : IDisposable
     private Timer? _cleanupTimer;
     private Timer? _announceTimer;
     private DeviceAnnouncement? _self;
+    private List<IPAddress> _localAddresses = new();
 
     public event EventHandler<DeviceInfo>? DeviceFound;
     public event EventHandler<string>? DeviceLost;
@@ -30,10 +32,19 @@ public class MulticastDiscovery : IDisposable
     {
         _self = self;
         _cts = new CancellationTokenSource();
+        _localAddresses = GetLocalIpv4Addresses();
+
         _client = new UdpClient();
         _client.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
         _client.Client.Bind(new IPEndPoint(IPAddress.Any, _port));
-        _client.JoinMulticastGroup(IPAddress.Parse(_multicastAddress));
+
+        var group = IPAddress.Parse(_multicastAddress);
+        foreach (var local in _localAddresses)
+        {
+            try { _client.JoinMulticastGroup(group, local); }
+            catch { }
+        }
+
         _cleanupTimer = new Timer(CleanupStaleDevices, null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
         Task.Run(() => ListenAsync(_cts.Token));
 
@@ -42,6 +53,30 @@ public class MulticastDiscovery : IDisposable
             Announce();
             _announceTimer = new Timer(_ => Announce(), null, TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10));
         }
+    }
+
+    private static List<IPAddress> GetLocalIpv4Addresses()
+    {
+        var result = new List<IPAddress>();
+        foreach (var nic in NetworkInterface.GetAllNetworkInterfaces())
+        {
+            if (nic.OperationalStatus != OperationalStatus.Up) continue;
+            if (nic.NetworkInterfaceType == NetworkInterfaceType.Loopback) continue;
+
+            const string badName = "veth|vethernet|wsl|docker|vmnet|npcap|loopback|hyper-v";
+            if (System.Text.RegularExpressions.Regex.IsMatch(nic.Name, badName, System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+                continue;
+
+            foreach (var ua in nic.GetIPProperties().UnicastAddresses)
+            {
+                if (ua.Address.AddressFamily != AddressFamily.InterNetwork) continue;
+                if (IPAddress.IsLoopback(ua.Address)) continue;
+                if (ua.Address.GetAddressBytes()[0] == 169) continue; // APIPA / link-local ohne Netz
+
+                result.Add(ua.Address);
+            }
+        }
+        return result;
     }
 
     public void UpdateSelf(DeviceAnnouncement self)
@@ -57,7 +92,26 @@ public class MulticastDiscovery : IDisposable
             if (self is null || _client is null) return;
             var json = JsonSerializer.Serialize(self);
             var bytes = Encoding.UTF8.GetBytes(json);
-            _client.Send(bytes, bytes.Length, new IPEndPoint(IPAddress.Parse(_multicastAddress), _port));
+            var group = new IPEndPoint(IPAddress.Parse(_multicastAddress), _port);
+
+            if (_localAddresses.Count == 0)
+            {
+                _client.Send(bytes, bytes.Length, group);
+                return;
+            }
+
+            foreach (var local in _localAddresses)
+            {
+                try
+                {
+                    _client.Client.SetSocketOption(
+                        SocketOptionLevel.IP, SocketOptionName.MulticastInterface, local.GetAddressBytes());
+                    _client.Send(bytes, bytes.Length, group);
+                }
+                catch
+                {
+                }
+            }
         }
         catch
         {
@@ -74,6 +128,10 @@ public class MulticastDiscovery : IDisposable
                 var json = Encoding.UTF8.GetString(result.Buffer);
                 var announcement = JsonSerializer.Deserialize<DeviceAnnouncement>(json);
                 if (announcement is null || string.IsNullOrEmpty(announcement.Fingerprint))
+                    continue;
+
+                // Eigene Ankündigung ignorieren (multicast loopback)
+                if (_self is not null && string.Equals(announcement.Fingerprint, _self.Fingerprint, StringComparison.OrdinalIgnoreCase))
                     continue;
 
                 _knownDevices[announcement.Fingerprint] = DateTime.UtcNow;
