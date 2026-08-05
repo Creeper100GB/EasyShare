@@ -1,0 +1,38 @@
+## Build
+bin/
+obj/
+out/
+publish/
+
+## NuGet
+*.nupkg
+*.snupkg
+packages/
+.nuget/
+
+## IDE
+.vs/
+.vscode/settings.json
+.vscode/launch.json
+.idea/
+*.user
+*.suo
+
+## OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+## Environment
+.env
+.env.local
+.env.*.local
+
+## Certs (generated at runtime)
+*.pfx
+*.pem
+*.crt
+*.key
+
+## Logs
+*.log

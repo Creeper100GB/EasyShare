@@ -1,0 +1,15 @@
+namespace EasyShare.Core.Models;
+
+public record DeviceInfo
+{
+    public string Alias { get; init; } = string.Empty;
+    public string Version { get; init; } = string.Empty;
+    public string? DeviceModel { get; init; }
+    public DeviceType? DeviceType { get; init; }
+    public string Fingerprint { get; init; } = string.Empty;
+    public int Port { get; init; }
+    public ProtocolType Protocol { get; init; }
+    public bool Download { get; init; }
+    public string IpAddress { get; init; } = string.Empty;
+    public DateTime LastSeen { get; init; }
+}

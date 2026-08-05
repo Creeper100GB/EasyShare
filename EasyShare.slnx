@@ -1,0 +1,12 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/EasyShare.Core/EasyShare.Core.csproj" Type="Library" />
+    <Project Path="src/EasyShare.Transport/EasyShare.Transport.csproj" Type="Library" />
+    <Project Path="src/EasyShare.App/EasyShare.App.csproj" Type="Application" />
+    <Project Path="src/EasyShare.Shell/EasyShare.Shell.csproj" Type="Library" />
+    <Project Path="src/EasyShare.Cli/EasyShare.Cli.csproj" Type="Application" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/EasyShare.Core.Tests/EasyShare.Core.Tests.csproj" Type="Test" />
+  </Folder>
+</Solution>

@@ -1,0 +1,445 @@
+using System.Collections.ObjectModel;
+using System.Drawing;
+using System.Drawing.Drawing2D;
+using System.IO;
+using System.Security.Cryptography.X509Certificates;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Input;
+using EasyShare.App.ViewModels;
+using EasyShare.Core.Config;
+using EasyShare.Core.Crypto;
+using EasyShare.Core.Discovery;
+using EasyShare.Core.Models;
+using EasyShare.Core.Security;
+using EasyShare.Core.Sessions;
+using EasyShare.Transport.FileTransfer;
+using EasyShare.Transport.Server;
+using H.NotifyIcon;
+using Microsoft.Win32;
+
+namespace EasyShare.App;
+
+public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
+{
+    private MulticastDiscovery? _discovery;
+    private LocalSendServer? _server;
+    private TrustStore? _trustStore;
+    private SessionManager? _sessionManager;
+    private TaskbarIcon? _trayIcon;
+
+    public ObservableCollection<DeviceViewModel> Devices { get; } = new();
+    public ObservableCollection<TransferViewModel> Transfers { get; } = new();
+
+    private AppConfig _config = null!;
+    private X509Certificate2? _certificate;
+    private string _fingerprint = string.Empty;
+    private readonly string _configPath;
+    private bool _isCleanedUp;
+
+    public MainWindow()
+    {
+        InitializeComponent();
+
+        _configPath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "EasyShare", "config.json");
+
+        DeviceList.ItemsSource = Devices;
+        TransferList.ItemsSource = Transfers;
+
+        LoadConfig();
+        InitializeServices();
+        SetupTrayIcon();
+        StartServices();
+
+        DropZone.DragOver += DropZone_DragOver;
+    }
+
+    private void LoadConfig()
+    {
+        try
+        {
+            if (File.Exists(_configPath))
+            {
+                var json = File.ReadAllText(_configPath);
+                _config = System.Text.Json.JsonSerializer.Deserialize<AppConfig>(json) ?? new AppConfig();
+            }
+            else
+            {
+                _config = new AppConfig();
+                SaveConfig();
+            }
+        }
+        catch
+        {
+            _config = new AppConfig();
+        }
+    }
+
+    private void SaveConfig()
+    {
+        try
+        {
+            var dir = Path.GetDirectoryName(_configPath)!;
+            Directory.CreateDirectory(dir);
+            var json = System.Text.Json.JsonSerializer.Serialize(_config);
+            File.WriteAllText(_configPath, json);
+        }
+        catch
+        {
+        }
+    }
+
+    private void InitializeServices()
+    {
+        _certificate = TlsCertificate.Generate();
+        _fingerprint = TlsCertificate.GetFingerprint(_certificate);
+
+        _trustStore = new TrustStore();
+        _sessionManager = new SessionManager();
+        _discovery = new MulticastDiscovery(_config.MulticastAddress, _config.MulticastPort);
+        _server = new LocalSendServer(_certificate);
+
+        _discovery.DeviceFound += OnDeviceFound;
+        _discovery.DeviceLost += OnDeviceLost;
+        _server.UploadRequested += OnUploadRequested;
+    }
+
+    private void StartServices()
+    {
+        _discovery?.Start();
+        _server?.Start(_config.HttpPort);
+        StatusText.Text = "Bereit";
+    }
+
+    private void SetupTrayIcon()
+    {
+        _trayIcon = new TaskbarIcon
+        {
+            ToolTipText = "EasyShare",
+            Icon = GenerateTrayIcon(),
+        };
+
+        _trayIcon.TrayLeftMouseDown += (_, _) => ToggleWindowVisibility();
+        _trayIcon.ContextMenu = CreateTrayMenu();
+        _trayIcon.Visibility = Visibility.Visible;
+
+        Resources.Add("TrayIcon", _trayIcon);
+    }
+
+    private static System.Drawing.Icon GenerateTrayIcon()
+    {
+        using var bitmap = new Bitmap(32, 32);
+        using var g = Graphics.FromImage(bitmap);
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+        g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+
+        using var bgBrush = new SolidBrush(Color.FromArgb(42, 42, 42));
+        g.FillEllipse(bgBrush, 1, 1, 30, 30);
+
+        using var font = new Font(new FontFamily("Segoe UI"), 11, System.Drawing.FontStyle.Bold);
+        using var textBrush = new SolidBrush(Color.White);
+        var sf = new StringFormat
+        {
+            Alignment = StringAlignment.Center,
+            LineAlignment = StringAlignment.Center,
+            Trimming = StringTrimming.None,
+        };
+        g.DrawString("ES", font, textBrush, new RectangleF(0, 0, 32, 32), sf);
+
+        return System.Drawing.Icon.FromHandle(bitmap.GetHicon());
+    }
+
+    private static ContextMenu CreateTrayMenu()
+    {
+        var menu = new ContextMenu();
+
+        var showItem = new MenuItem { Header = "Zeigen" };
+        showItem.Click += (_, _) =>
+        {
+            if (Application.Current.MainWindow is MainWindow w)
+                w.ToggleWindowVisibility();
+        };
+
+        var exitItem = new MenuItem { Header = "Beenden" };
+        exitItem.Click += (_, _) =>
+        {
+            if (Application.Current.MainWindow is MainWindow w)
+                w.ShutdownApplication();
+        };
+
+        menu.Items.Add(showItem);
+        menu.Items.Add(new Separator());
+        menu.Items.Add(exitItem);
+
+        return menu;
+    }
+
+    private void ToggleWindowVisibility()
+    {
+        if (IsVisible)
+        {
+            Hide();
+        }
+        else
+        {
+            Show();
+            WindowState = WindowState.Normal;
+            Activate();
+        }
+    }
+
+    private void ShutdownApplication()
+    {
+        Cleanup();
+        _trayIcon?.Dispose();
+        Application.Current.Shutdown();
+    }
+
+    private void OnDeviceFound(object? sender, DeviceInfo device)
+    {
+        Dispatcher.Invoke(() =>
+        {
+            if (Devices.Any(d => d.Fingerprint == device.Fingerprint))
+                return;
+
+            Devices.Add(new DeviceViewModel
+            {
+                Alias = device.Alias,
+                DeviceModel = device.DeviceModel ?? "Unbekannt",
+                IpAddress = device.IpAddress,
+                DeviceType = device.DeviceType ?? DeviceType.Desktop,
+                Fingerprint = device.Fingerprint,
+            });
+
+            StatusText.Text = $"{Devices.Count} Gerät(e) gefunden";
+        });
+    }
+
+    private void OnDeviceLost(object? sender, string fingerprint)
+    {
+        Dispatcher.Invoke(() =>
+        {
+            var existing = Devices.FirstOrDefault(d => d.Fingerprint == fingerprint);
+            if (existing is not null)
+                Devices.Remove(existing);
+
+            StatusText.Text = Devices.Count > 0
+                ? $"{Devices.Count} Gerät(e) gefunden"
+                : "Bereit";
+        });
+    }
+
+    private void DropZone_DragOver(object sender, DragEventArgs e)
+    {
+        if (e.Data.GetDataPresent(DataFormats.FileDrop))
+        {
+            e.Effects = DragDropEffects.Copy;
+            e.Handled = true;
+        }
+        else
+        {
+            e.Effects = DragDropEffects.None;
+        }
+    }
+
+    private void DropZone_Drop(object sender, DragEventArgs e)
+    {
+        if (e.Data.GetData(DataFormats.FileDrop) is string[] files && files.Length > 0)
+        {
+            var selectedDevice = Devices.FirstOrDefault();
+            if (selectedDevice is null)
+            {
+                StatusText.Text = "Kein Gerät in der Nähe gefunden";
+                return;
+            }
+
+            SendFiles(files, selectedDevice);
+        }
+    }
+
+    private void SelectFilesButton_Click(object sender, RoutedEventArgs e)
+    {
+        var selectedDevice = Devices.FirstOrDefault();
+        if (selectedDevice is null)
+        {
+            StatusText.Text = "Kein Gerät in der Nähe gefunden";
+            return;
+        }
+
+        var dialog = new OpenFileDialog
+        {
+            Multiselect = true,
+            Title = "Dateien auswählen",
+        };
+
+        if (dialog.ShowDialog() == true)
+        {
+            SendFiles(dialog.FileNames, selectedDevice);
+        }
+    }
+
+    private void SendFiles(string[] filePaths, DeviceViewModel target)
+    {
+        if (_sessionManager is null) return;
+
+        var deviceInfo = new DeviceInfo
+        {
+            Alias = target.Alias,
+            DeviceModel = target.DeviceModel,
+            DeviceType = target.DeviceType,
+            Fingerprint = target.Fingerprint,
+            IpAddress = target.IpAddress,
+            Port = _config.HttpPort,
+        };
+
+        var session = _sessionManager.CreateSendSession(deviceInfo, filePaths.ToList());
+
+        var transfer = new TransferViewModel
+        {
+            FileName = filePaths.Length == 1
+                ? Path.GetFileName(filePaths[0])
+                : $"{filePaths.Length} Dateien an {target.Alias}",
+            Progress = 0,
+            SpeedText = string.Empty,
+            StatusText = "Wird vorbereitet...",
+            Status = TransferStatus.Pending,
+        };
+
+        Dispatcher.Invoke(() => Transfers.Add(transfer));
+        StatusText.Text = $"Sende an {target.Alias}...";
+
+        var fileSender = new FileSender();
+        fileSender.ProgressChanged += (_, progress) =>
+        {
+            Dispatcher.Invoke(() =>
+            {
+                transfer.Progress = progress;
+                transfer.SpeedText = $"{FormatBytes(fileSender.CurrentBytesPerSecond)}/s";
+                transfer.Status = TransferStatus.Active;
+                transfer.StatusText = "Übertragung läuft...";
+            });
+        };
+
+        fileSender.StatusChanged += (_, status) =>
+        {
+            Dispatcher.Invoke(() =>
+            {
+                transfer.Status = status;
+                transfer.StatusText = status switch
+                {
+                    TransferStatus.Completed => "Abgeschlossen",
+                    TransferStatus.Failed => "Fehlgeschlagen",
+                    TransferStatus.Cancelled => "Abgebrochen",
+                    _ => transfer.StatusText,
+                };
+                StatusText.Text = status == TransferStatus.Active
+                    ? $"Sende an {target.Alias}..."
+                    : $"Übertragung: {transfer.StatusText}";
+            });
+        };
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await fileSender.SendAsync(session);
+            }
+            catch (Exception ex)
+            {
+                Dispatcher.Invoke(() =>
+                {
+                    transfer.Status = TransferStatus.Failed;
+                    transfer.StatusText = $"Fehler: {ex.Message}";
+                    StatusText.Text = $"Fehler bei Übertragung an {target.Alias}";
+                });
+            }
+        });
+    }
+
+    private void OnUploadRequested(object? sender, UploadRequestEventArgs e)
+    {
+        Dispatcher.Invoke(() =>
+        {
+            if (_config.AutoAcceptTrusted && _trustStore?.IsTrusted(e.Fingerprint) == true)
+            {
+                AcceptUpload(e);
+                return;
+            }
+
+            var result = MessageBox.Show(
+                $"{e.Sender.Alias} möchte {e.Files.Count} Datei(en) senden. Annehmen?",
+                "Eingehende Übertragung",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Question);
+
+            if (result == MessageBoxResult.Yes)
+            {
+                AcceptUpload(e);
+                _trustStore?.AddTrusted(e.Fingerprint, e.Sender.Alias);
+            }
+        });
+    }
+
+    private void AcceptUpload(UploadRequestEventArgs e)
+    {
+        var transfer = new TransferViewModel
+        {
+            FileName = e.Files.Count == 1
+                ? e.Files[0].FileName
+                : $"{e.Files.Count} Dateien von {e.Sender.Alias}",
+            Progress = 0,
+            SpeedText = string.Empty,
+            StatusText = "Empfang wird vorbereitet...",
+            Status = TransferStatus.Active,
+        };
+
+        Transfers.Add(transfer);
+        StatusText.Text = $"Empfange von {e.Sender.Alias}...";
+
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(1000);
+            Dispatcher.Invoke(() =>
+            {
+                transfer.Progress = 1.0;
+                transfer.Status = TransferStatus.Completed;
+                transfer.StatusText = "Abgeschlossen";
+                StatusText.Text = $"Empfang von {e.Sender.Alias} abgeschlossen";
+            });
+        });
+    }
+
+    private void Window_Closing(object? sender, System.ComponentModel.CancelEventArgs e)
+    {
+        if (!_isCleanedUp)
+        {
+            e.Cancel = true;
+            Hide();
+        }
+    }
+
+    public void Cleanup()
+    {
+        _isCleanedUp = true;
+        _discovery?.DeviceFound -= OnDeviceFound;
+        _discovery?.DeviceLost -= OnDeviceLost;
+        _server?.UploadRequested -= OnUploadRequested;
+        _discovery?.Stop();
+        _server?.Stop();
+        _discovery?.Dispose();
+        _certificate?.Dispose();
+    }
+
+    private static string FormatBytes(double bytes)
+    {
+        return bytes switch
+        {
+            >= 1_000_000_000 => $"{bytes / 1_000_000_000:F1} GB",
+            >= 1_000_000 => $"{bytes / 1_000_000:F1} MB",
+            >= 1_000 => $"{bytes / 1_000:F1} KB",
+            _ => $"{bytes:F0} B",
+        };
+    }
+}
