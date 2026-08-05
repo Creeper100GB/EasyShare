@@ -190,7 +190,17 @@ public class LocalSendServer
             });
 
             using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(2));
-            var response = await pending.Tcs.Task.WaitAsync(cts.Token);
+            PrepareUploadResponse? response;
+            try
+            {
+                response = await pending.Tcs.Task.WaitAsync(cts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                lock (_lock) _pending.Remove(sessionId);
+                return Results.StatusCode(StatusCodes.Status408RequestTimeout);
+            }
+
             if (response.Files.Count == 0)
             {
                 return Results.StatusCode(StatusCodes.Status403Forbidden);

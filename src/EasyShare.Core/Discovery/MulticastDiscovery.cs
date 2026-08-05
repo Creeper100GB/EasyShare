@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
@@ -13,7 +14,7 @@ public class MulticastDiscovery : IDisposable
     private readonly int _port;
     private UdpClient? _client;
     private CancellationTokenSource? _cts;
-    private readonly Dictionary<string, DateTime> _knownDevices = new();
+    private readonly ConcurrentDictionary<string, DateTime> _knownDevices = new();
     private Timer? _cleanupTimer;
     private Timer? _announceTimer;
     private DeviceAnnouncement? _self;
@@ -170,7 +171,7 @@ public class MulticastDiscovery : IDisposable
 
         foreach (var fp in stale)
         {
-            _knownDevices.Remove(fp);
+            _knownDevices.TryRemove(fp, out _);
             DeviceLost?.Invoke(this, fp);
         }
     }

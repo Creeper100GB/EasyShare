@@ -104,7 +104,7 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
             var json = System.Text.Json.JsonSerializer.Serialize(_config);
             File.WriteAllText(_configPath, json);
         }
-        catch { }
+        catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[EasyShare] SaveSettings failed: {ex.Message}"); }
 
         Close();
     }

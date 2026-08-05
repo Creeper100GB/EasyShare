@@ -86,7 +86,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
                 SaveConfig();
             }
         }
-        catch { _config = new AppConfig(); }
+        catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[EasyShare] LoadConfig failed: {ex.Message}"); _config = new AppConfig(); }
     }
 
     private void SaveConfig()
@@ -97,12 +97,12 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
             Directory.CreateDirectory(dir);
             File.WriteAllText(_configPath, System.Text.Json.JsonSerializer.Serialize(_config));
         }
-        catch { }
+        catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[EasyShare] SaveConfig failed: {ex.Message}"); }
     }
 
     private void InitializeServices()
     {
-        _certificate = TlsCertificate.Generate();
+        _certificate = TlsCertificate.LoadOrCreate();
         _fingerprint = TlsCertificate.GetFingerprint(_certificate);
 
         _trustStore = new TrustStore();
@@ -367,7 +367,11 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
 
         _ = Task.Run(async () =>
         {
-            try { await fileSender.SendAsync(session); }
+            try
+            {
+                using (fileSender)
+                    await fileSender.SendAsync(session);
+            }
             catch (Exception ex)
             {
                 Dispatcher.Invoke(() =>
@@ -434,6 +438,13 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
                 History.Insert(0, new HistoryEntry { FileName = e.FileName, Direction = "←", Timestamp = DateTime.Now });
             }
             StatusText.Text = $"Empfangen: {e.FileName}";
+
+            if (!IsVisible)
+            {
+                Show();
+                Activate();
+                _trayIcon?.ToolTipText = $"Datei empfangen: {e.FileName}";
+            }
         });
     }
 

@@ -8,7 +8,7 @@ using EasyShare.Core.Models;
 
 namespace EasyShare.Transport.FileTransfer;
 
-public class FileSender
+public class FileSender : IDisposable
 {
     private readonly string _apiBase;
     private readonly string _targetFingerprint;
@@ -72,7 +72,7 @@ public class FileSender
             for (int i = 0; i < session.Files.Count; i++)
             {
                 var file = session.Files[i];
-                var token = prepare.Files[file.Id];
+                var token = prepare.Files.TryGetValue(file.Id, out var t) ? t : throw new KeyNotFoundException($"Server did not return token for file {file.Id}");
                 await UploadFileAsync(baseUrl, prepare.SessionId, file, token, ct);
 
                 var totalProgress = (double)(i + 1) / session.Files.Count;

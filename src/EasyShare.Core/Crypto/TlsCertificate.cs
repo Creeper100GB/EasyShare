@@ -1,3 +1,4 @@
+using System.IO;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 
@@ -5,6 +6,34 @@ namespace EasyShare.Core.Crypto;
 
 public static class TlsCertificate
 {
+    private static readonly string CertPath = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "EasyShare", "cert.pfx");
+
+    public static X509Certificate2 LoadOrCreate()
+    {
+        if (File.Exists(CertPath))
+        {
+            try
+            {
+                return X509CertificateLoader.LoadPkcs12(
+                    File.ReadAllBytes(CertPath), string.Empty,
+                    X509KeyStorageFlags.Exportable | X509KeyStorageFlags.PersistKeySet);
+            }
+            catch { }
+        }
+
+        var cert = Generate();
+        try
+        {
+            var dir = Path.GetDirectoryName(CertPath)!;
+            Directory.CreateDirectory(dir);
+            File.WriteAllBytes(CertPath, cert.Export(X509ContentType.Pfx));
+        }
+        catch { }
+        return cert;
+    }
+
     public static X509Certificate2 Generate()
     {
         using var rsa = RSA.Create(2048);
