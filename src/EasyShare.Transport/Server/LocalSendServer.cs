@@ -1,5 +1,8 @@
 using System.Net;
+using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
+using System.Text.Json;
+using EasyShare.Core;
 using EasyShare.Core.Models;
 
 namespace EasyShare.Transport.Server;
@@ -12,14 +15,289 @@ public class UploadRequestEventArgs : EventArgs
     public string Fingerprint { get; set; } = string.Empty;
 }
 
+public class UploadCompletedEventArgs : EventArgs
+{
+    public string SessionId { get; set; } = string.Empty;
+    public string FileName { get; set; } = string.Empty;
+    public long Size { get; set; }
+    public string SavePath { get; set; } = string.Empty;
+}
+
 public class LocalSendServer
 {
     public event EventHandler<UploadRequestEventArgs>? UploadRequested;
+    public event EventHandler<UploadCompletedEventArgs>? UploadCompleted;
     private readonly X509Certificate2 _certificate;
     private CancellationTokenSource? _cts;
     private int _port;
     private string _alias = "EasyShare";
     private string _fingerprint = string.Empty;
+    private string _savePath = string.Empty;
+    private readonly object _lock = new();
+    private readonly Dictionary<string, PendingUpload> _pending = new();
+
+    private sealed class PendingUpload
+    {
+        public DeviceInfo Sender { get; set; } = new();
+        public List<FileEntry> Files { get; set; } = new();
+        public Dictionary<string, string> Tokens { get; set; } = new();
+        public HashSet<string> Received { get; set; } = new();
+        public TaskCompletionSource<PrepareUploadResponse> Tcs { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    }
+
+    public LocalSendServer(X509Certificate2 certificate)
+    {
+        _certificate = certificate;
+    }
+
+    public void Start(int port, string alias = "EasyShare", string fingerprint = "", string savePath = "")
+    {
+        _port = port;
+        _alias = alias;
+        _fingerprint = fingerprint;
+        _savePath = savePath;
+        _cts = new CancellationTokenSource();
+        Task.Run(() => RunAsync(_cts.Token));
+    }
+
+    public string GetDefaultSavePath()
+    {
+        if (!string.IsNullOrEmpty(_savePath)) return _savePath;
+        return Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            "Downloads", "EasyShare");
+    }
+
+    public void AcceptUpload(string sessionId, string? savePath = null)
+    {
+        PendingUpload? pending;
+        lock (_lock)
+        {
+            if (!_pending.TryGetValue(sessionId, out pending)) return;
+            pending.Tokens = pending.Files.ToDictionary(f => f.Id, _ => Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(16)));
+        }
+
+        if (string.IsNullOrEmpty(savePath))
+            savePath = GetDefaultSavePath();
+        Directory.CreateDirectory(savePath);
+        pending.Tcs.TrySetResult(new PrepareUploadResponse
+        {
+            SessionId = sessionId,
+            Files = pending.Tokens,
+        });
+    }
+
+    public void RejectUpload(string sessionId)
+    {
+        PendingUpload? pending;
+        lock (_lock)
+        {
+            if (!_pending.TryGetValue(sessionId, out pending)) return;
+            _pending.Remove(sessionId);
+        }
+        pending.Tcs.TrySetResult(new PrepareUploadResponse { SessionId = sessionId });
+    }
+
+    private async Task RunAsync(CancellationToken ct)
+    {
+        var builder = WebApplication.CreateSlimBuilder();
+
+        builder.WebHost.ConfigureKestrel(options =>
+        {
+            options.ListenAnyIP(_port, listen =>
+            {
+                listen.UseHttps(_certificate);
+            });
+        });
+
+        var app = builder.Build();
+
+        app.MapGet("/", () => WebHtml.Replace("{ALIAS}", _alias));
+
+        app.MapPost("/upload", async (HttpContext context) =>
+        {
+            if (!context.Request.HasFormContentType)
+            {
+                context.Response.StatusCode = 400;
+                return;
+            }
+
+            var savePath = GetDefaultSavePath();
+            Directory.CreateDirectory(savePath);
+
+            foreach (var file in context.Request.Form.Files)
+            {
+                var safeName = SanitizeFileName(file.FileName);
+                var filePath = Path.Combine(savePath, safeName);
+                using var stream = File.Create(filePath);
+                await file.CopyToAsync(stream);
+            }
+
+            context.Response.StatusCode = 200;
+            await context.Response.WriteAsync("OK");
+        });
+
+        app.MapGet("/api/localsend/v2/register", (HttpContext context) =>
+        {
+            return Results.Json(GetInfo());
+        });
+
+        app.MapPost("/api/localsend/v2/prepare-upload", async (HttpContext context) =>
+        {
+            PrepareUploadRequest? request;
+            try
+            {
+                request = await JsonSerializer.DeserializeAsync<PrepareUploadRequest>(context.Request.Body);
+            }
+            catch
+            {
+                request = null;
+            }
+
+            if (request is null || request.Files.Count == 0)
+            {
+                return Results.BadRequest();
+            }
+
+            var sender = new DeviceInfo
+            {
+                Alias = request.Info.Alias,
+                Version = request.Info.Version,
+                DeviceModel = request.Info.DeviceModel,
+                DeviceType = request.Info.DeviceType,
+                Fingerprint = request.Info.Fingerprint,
+                Port = request.Info.Port,
+                Protocol = request.Info.Protocol,
+                Download = request.Info.Download,
+                IpAddress = context.Connection.RemoteIpAddress?.ToString() ?? "",
+            };
+
+            var sessionId = Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(16));
+            var pending = new PendingUpload
+            {
+                Sender = sender,
+                Files = request.Files.Values.ToList(),
+            };
+
+            lock (_lock) _pending[sessionId] = pending;
+
+            UploadRequested?.Invoke(this, new UploadRequestEventArgs
+            {
+                SessionId = sessionId,
+                Sender = sender,
+                Files = pending.Files,
+                Fingerprint = sender.Fingerprint,
+            });
+
+            using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(2));
+            var response = await pending.Tcs.Task.WaitAsync(cts.Token);
+            if (response.Files.Count == 0)
+            {
+                return Results.StatusCode(StatusCodes.Status403Forbidden);
+            }
+            return Results.Json(response);
+        });
+
+        app.MapPost("/api/localsend/v2/upload", async (HttpContext context) =>
+        {
+            if (!context.Request.HasFormContentType)
+            {
+                return Results.BadRequest();
+            }
+
+            var form = await context.Request.ReadFormAsync();
+            var sessionId = form["sessionId"].ToString();
+            var fileId = form["fileId"].ToString();
+            var token = form["token"].ToString();
+            var file = form.Files.FirstOrDefault();
+
+            if (string.IsNullOrEmpty(sessionId) || string.IsNullOrEmpty(fileId) || string.IsNullOrEmpty(token) || file is null)
+            {
+                return Results.BadRequest();
+            }
+
+            PendingUpload? pending;
+            lock (_lock)
+            {
+                if (!_pending.TryGetValue(sessionId, out pending) || !pending.Tokens.TryGetValue(fileId, out var expected) || expected != token)
+                {
+                    return Results.StatusCode(StatusCodes.Status403Forbidden);
+                }
+            }
+
+            var safeName = SanitizeFileName(file.FileName);
+            var savePath = GetDefaultSavePath();
+            Directory.CreateDirectory(savePath);
+            var filePath = GetUniquePath(savePath, safeName);
+            using (var stream = File.Create(filePath))
+            {
+                await file.CopyToAsync(stream);
+            }
+
+            bool complete;
+            lock (_lock)
+            {
+                pending.Received.Add(fileId);
+                complete = pending.Received.SetEquals(pending.Tokens.Keys);
+                if (complete) _pending.Remove(sessionId);
+            }
+
+            if (complete)
+            {
+                UploadCompleted?.Invoke(this, new UploadCompletedEventArgs
+                {
+                    SessionId = sessionId,
+                    FileName = safeName,
+                    Size = file.Length,
+                    SavePath = filePath,
+                });
+            }
+
+            return Results.Ok("OK");
+        });
+
+        app.MapGet("/api/localsend/v2/info", () => Results.Json(GetInfo()));
+
+        await app.RunAsync(ct);
+    }
+
+    private object GetInfo() => new
+    {
+        alias = _alias,
+        version = Constants.DefaultProtocolVersion,
+        deviceType = "desktop",
+        fingerprint = _fingerprint,
+        port = _port,
+        protocol = "https",
+        download = true,
+        announce = false,
+    };
+
+    private static string SanitizeFileName(string name)
+    {
+        var invalid = Path.GetInvalidFileNameChars();
+        return new string(name.Select(c => invalid.Contains(c) ? '_' : c).ToArray());
+    }
+
+    private static string GetUniquePath(string dir, string fileName)
+    {
+        var path = Path.Combine(dir, fileName);
+        if (!File.Exists(path)) return path;
+
+        var name = Path.GetFileNameWithoutExtension(fileName);
+        var ext = Path.GetExtension(fileName);
+        for (int i = 1; ; i++)
+        {
+            var candidate = Path.Combine(dir, $"{name} ({i}){ext}");
+            if (!File.Exists(candidate)) return candidate;
+        }
+    }
+
+    public void Stop()
+    {
+        _cts?.Cancel();
+    }
+
     private const string WebHtml = """
 <!DOCTYPE html>
 <html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -96,97 +374,4 @@ async function sendFiles(){
 function formatSize(b){return b>=1e9?(b/1e9).toFixed(1)+' GB':b>=1e6?(b/1e6).toFixed(1)+' MB':b>=1e3?(b/1e3).toFixed(1)+' KB':b+' B'}
 </script></body></html>
 """;
-
-    public LocalSendServer(X509Certificate2 certificate)
-    {
-        _certificate = certificate;
-    }
-
-    public void Start(int port, string alias = "EasyShare", string fingerprint = "")
-    {
-        _port = port;
-        _alias = alias;
-        _fingerprint = fingerprint;
-        _cts = new CancellationTokenSource();
-        Task.Run(() => RunAsync(_cts.Token));
-    }
-
-    private async Task RunAsync(CancellationToken ct)
-    {
-        var builder = WebApplication.CreateSlimBuilder();
-
-        builder.WebHost.ConfigureKestrel(options =>
-        {
-            options.ListenAnyIP(_port);
-            options.ListenAnyIP(_port + 1, configure => { });
-        });
-
-        var app = builder.Build();
-
-        app.MapGet("/", () => WebHtml.Replace("{ALIAS}", _alias));
-
-        app.MapPost("/upload", async (HttpContext context) =>
-        {
-            if (!context.Request.HasFormContentType)
-            {
-                context.Response.StatusCode = 400;
-                return;
-            }
-
-            var savePath = System.IO.Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-                "Downloads", "EasyShare");
-
-            System.IO.Directory.CreateDirectory(savePath);
-
-            foreach (var file in context.Request.Form.Files)
-            {
-                var filePath = System.IO.Path.Combine(savePath, file.FileName);
-                using var stream = System.IO.File.Create(filePath);
-                await file.CopyToAsync(stream);
-            }
-
-            context.Response.StatusCode = 200;
-            await context.Response.WriteAsync("OK");
-        });
-
-        app.MapGet("/api/localsend/v2/register", (HttpContext context) =>
-        {
-            context.Response.StatusCode = 200;
-            return Results.Json(new { });
-        });
-
-        app.MapPost("/api/localsend/v2/prepare-upload", (HttpContext context) =>
-        {
-            context.Response.StatusCode = 200;
-            return Results.Json(new { sessionId = Guid.NewGuid().ToString("N"), files = new { } });
-        });
-
-        app.MapPost("/api/localsend/v2/upload", (HttpContext context) =>
-        {
-            context.Response.StatusCode = 200;
-            return Results.Ok();
-        });
-
-        app.MapGet("/api/localsend/v2/info", () =>
-        {
-            return Results.Json(new
-            {
-                alias = _alias,
-                version = "2.0",
-                deviceType = "desktop",
-                fingerprint = _fingerprint,
-                port = _port,
-                protocol = "https",
-                download = true,
-            });
-        });
-
-        await app.RunAsync(ct);
-    }
-
-    public void Stop()
-    {
-        _cts?.Cancel();
-    }
 }

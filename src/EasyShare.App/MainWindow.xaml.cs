@@ -9,9 +9,9 @@ using System.Security.Cryptography.X509Certificates;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using EasyShare.Core;
 using EasyShare.Core.Services;
 using EasyShare.App.ViewModels;
-using EasyShare.App.Views;
 using EasyShare.Core.Config;
 using EasyShare.Core.Crypto;
 using EasyShare.Core.Discovery;
@@ -20,8 +20,10 @@ using EasyShare.Core.Security;
 using EasyShare.Core.Sessions;
 using EasyShare.Transport.FileTransfer;
 using EasyShare.Transport.Server;
+using EasyShare.App.Views;
 using H.NotifyIcon;
 using Microsoft.Win32;
+using CoreProtocolType = EasyShare.Core.Models.ProtocolType;
 
 namespace EasyShare.App;
 
@@ -43,6 +45,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
     private readonly string _configPath;
     private bool _isCleanedUp;
     private UpdateService? _updateService;
+    private readonly Dictionary<string, TransferViewModel> _receiveTransfers = new();
     private UpdateInfo? _pendingUpdate;
     private DeviceViewModel? _selectedDevice;
 
@@ -110,14 +113,29 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         _discovery.DeviceFound += OnDeviceFound;
         _discovery.DeviceLost += OnDeviceLost;
         _server.UploadRequested += OnUploadRequested;
+        _server.UploadCompleted += OnUploadCompleted;
     }
 
     private void StartServices()
     {
-        _discovery?.Start();
-        _server?.Start(_config.HttpPort, _config.DeviceAlias, _fingerprint);
+        var self = BuildAnnouncement();
+        _discovery?.Start(self);
+        _server?.Start(_config.HttpPort, _config.DeviceAlias, _fingerprint, _config.DefaultSavePath);
         StatusText.Text = "Bereit";
     }
+
+    private DeviceAnnouncement BuildAnnouncement() => new()
+    {
+        Alias = _config.DeviceAlias,
+        Version = Constants.DefaultProtocolVersion,
+        DeviceModel = Environment.MachineName,
+        DeviceType = DeviceType.Desktop,
+        Fingerprint = _fingerprint,
+        Port = _config.HttpPort,
+        Protocol = CoreProtocolType.Https,
+        Download = true,
+        Announce = true,
+    };
 
     public void ApplyTheme(Theme theme)
     {
@@ -209,6 +227,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
                 IpAddress = device.IpAddress,
                 DeviceType = device.DeviceType ?? DeviceType.Desktop,
                 Fingerprint = device.Fingerprint,
+                Port = device.Port > 0 ? device.Port : 53317,
             });
 
             StatusText.Text = $"{Devices.Count} Gerät(e) gefunden";
@@ -293,7 +312,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         {
             Alias = target.Alias, DeviceModel = target.DeviceModel,
             DeviceType = target.DeviceType, Fingerprint = target.Fingerprint,
-            IpAddress = target.IpAddress, Port = _config.HttpPort,
+            IpAddress = target.IpAddress, Port = target.Port,
         };
 
         var session = _sessionManager.CreateSendSession(deviceInfo, filePaths.ToList());
@@ -307,7 +326,13 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         Dispatcher.Invoke(() => Transfers.Add(transfer));
         StatusText.Text = $"Sende an {target.Alias}...";
 
-        var fileSender = new FileSender();
+        var fileSender = new FileSender(
+            BuildAnnouncement(),
+            target.IpAddress,
+            target.Port,
+            target.Fingerprint,
+            useTls: true,
+            Constants.DefaultApiBase);
         fileSender.ProgressChanged += (_, progress) =>
         {
             Dispatcher.Invoke(() =>
@@ -375,6 +400,10 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
                 if (dialog.TrustDevice)
                     _trustStore?.AddTrusted(e.Fingerprint, e.Sender.Alias ?? "Unbekannt");
             }
+            else
+            {
+                _server?.RejectUpload(e.SessionId);
+            }
         });
     }
 
@@ -388,20 +417,23 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
 
         Transfers.Add(transfer);
         StatusText.Text = $"Empfange von {e.Sender.Alias}...";
+        _receiveTransfers[e.SessionId] = transfer;
 
-        _ = Task.Run(async () =>
+        _server?.AcceptUpload(e.SessionId, _config.DefaultSavePath);
+    }
+
+    private void OnUploadCompleted(object? sender, UploadCompletedEventArgs e)
+    {
+        Dispatcher.Invoke(() =>
         {
-            await Task.Delay(1000);
-            Dispatcher.Invoke(() =>
+            if (_receiveTransfers.Remove(e.SessionId, out var transfer))
             {
-                transfer.Progress = 1.0;
                 transfer.Status = TransferStatus.Completed;
+                transfer.Progress = 1;
                 transfer.StatusText = "Abgeschlossen";
-                StatusText.Text = $"Empfang von {e.Sender.Alias} abgeschlossen";
-
-                if (addToHistory)
-                    History.Insert(0, new HistoryEntry { FileName = transfer.FileName, Direction = "←", Timestamp = DateTime.Now });
-            });
+                History.Insert(0, new HistoryEntry { FileName = e.FileName, Direction = "←", Timestamp = DateTime.Now });
+            }
+            StatusText.Text = $"Empfangen: {e.FileName}";
         });
     }
 
@@ -436,7 +468,15 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         if (_config.DeviceAlias != window.AliasTextBox.Text || _config.HttpPort != (int.TryParse(window.PortBox.Text, out var p) ? p : 53317))
         {
             LoadConfig();
+            RestartServices();
         }
+    }
+
+    private void RestartServices()
+    {
+        _discovery?.Stop();
+        _server?.Stop();
+        StartServices();
     }
 
     private void Window_Closing(object? sender, System.ComponentModel.CancelEventArgs e)
@@ -450,6 +490,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         _discovery?.DeviceFound -= OnDeviceFound;
         _discovery?.DeviceLost -= OnDeviceLost;
         _server?.UploadRequested -= OnUploadRequested;
+        _server?.UploadCompleted -= OnUploadCompleted;
         _discovery?.Stop();
         _server?.Stop();
         _discovery?.Dispose();
