@@ -71,14 +71,11 @@
     </Grid.RowDefinitions>
 
     <Grid Grid.Row="0">
-      <Grid.ColumnDefinitions>
-        <ColumnDefinition Width="*"/>
-        <ColumnDefinition Width="Auto"/>
-      </Grid.ColumnDefinitions>
-      <wpfui:TitleBar Grid.Column="0" Title="EasyShare"/>
-      <StackPanel Grid.Column="1" Orientation="Horizontal" Margin="0,0,8,0" VerticalAlignment="Top">
-        <Button x:Name="QrButton" Content="QR-Empfang" Padding="10,4" Margin="0,6,4,0" Click="QrButton_Click" ToolTip="QR-Code für Zero-Install Empfang anzeigen"/>
-        <Button x:Name="SettingsButton" Content="Einstellungen" Padding="10,4" Margin="0,6,0,0" Click="SettingsButton_Click" ToolTip="Einstellungen öffnen"/>
+      <wpfui:TitleBar Title="EasyShare"/>
+      <StackPanel Orientation="Horizontal" HorizontalAlignment="Right"
+                  VerticalAlignment="Top" Margin="0,6,150,0">
+        <Button x:Name="QrButton" Content="QR-Empfang" Padding="10,4" Margin="0,0,4,0" Click="QrButton_Click" ToolTip="QR-Code für Zero-Install Empfang anzeigen"/>
+        <Button x:Name="SettingsButton" Content="Einstellungen" Padding="10,4" Click="SettingsButton_Click" ToolTip="Einstellungen öffnen"/>
       </StackPanel>
     </Grid>
 

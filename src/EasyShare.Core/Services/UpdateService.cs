@@ -81,15 +81,13 @@ public class UpdateService
         var tempZip = Path.Combine(Path.GetTempPath(), "EasyShare-update.zip");
         var tempExtract = Path.Combine(Path.GetTempPath(), "EasyShare-update");
 
-        try
-        {
-            using var httpClient = new HttpClient();
-            httpClient.Timeout = TimeSpan.FromMinutes(10);
-            using var response = await httpClient.GetAsync(downloadUrl, HttpCompletionOption.ResponseHeadersRead, ct);
-            response.EnsureSuccessStatusCode();
-            var totalBytes = response.Content.Headers.ContentLength ?? 0L;
-            await using var stream = await response.Content.ReadAsStreamAsync(ct);
-            await using var fs = File.Create(tempZip);
+        using var httpClient = new HttpClient();
+        httpClient.Timeout = TimeSpan.FromMinutes(10);
+        using var response = await httpClient.GetAsync(downloadUrl, HttpCompletionOption.ResponseHeadersRead, ct);
+        response.EnsureSuccessStatusCode();
+        var totalBytes = response.Content.Headers.ContentLength ?? 0L;
+        await using var stream = await response.Content.ReadAsStreamAsync(ct);
+        await using var fs = File.Create(tempZip);
 
             var buffer = new byte[81920];
             long read = 0;
@@ -117,12 +115,20 @@ public class UpdateService
 
             var exeName = Path.GetFileName(sourceExe);
             var scriptContent = "@echo off\r\n"
-                + "timeout /t 1 /nobreak >nul\r\n"
+                + "setlocal\r\n"
+                + "ping -n 3 127.0.0.1 >nul\r\n"
                 + "taskkill /f /im " + exeName + " 2>nul\r\n"
-                + "timeout /t 1 /nobreak >nul\r\n"
-                + "xcopy /y /e /i \"" + sourceExe + "\" \"" + _installDir + "\" >nul\r\n"
+                + "ping -n 3 127.0.0.1 >nul\r\n"
+                + "set SOURCE=" + sourceExe + "\r\n"
+                + "set DEST=" + _installDir + "\r\n"
+                + ":retry\r\n"
+                + "copy /y \"%SOURCE%\" \"%DEST%\\" + exeName + "\" >nul 2>&1\r\n"
+                + "if errorlevel 1 (\r\n"
+                + "  ping -n 4 127.0.0.1 >nul\r\n"
+                + "  goto retry\r\n"
+                + ")\r\n"
                 + "del /q \"" + tempZip + "\" >nul 2>&1\r\n"
-                + "start \"\" \"" + _installDir + "\\" + exeName + "\"\r\n"
+                + "start \"\" \"%DEST%\\" + exeName + "\"\r\n"
                 + "del \"%~f0\"\r\n";
 
             var updateScript = Path.Combine(Path.GetTempPath(), "EasyShare-update.bat");
@@ -135,8 +141,6 @@ public class UpdateService
                 UseShellExecute = false,
                 CreateNoWindow = true,
             });
-        }
-        catch { }
     }
 
     private static int CompareVersions(string a, string b)
