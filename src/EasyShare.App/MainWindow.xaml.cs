@@ -76,8 +76,6 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         ApplyTheme(_config.Theme);
         CheckForUpdatesAsync();
         ConsumeShareArgs();
-
-        DropZone.DragOver += DropZone_DragOver;
     }
 
     private void ConsumeShareArgs()
@@ -223,6 +221,23 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
     public void ApplyTheme(Theme theme)
     {
         _config.Theme = theme;
+        var appTheme = theme switch
+        {
+            Theme.Light => Wpf.Ui.Appearance.ApplicationTheme.Light,
+            Theme.Auto => Wpf.Ui.Appearance.ApplicationThemeManager.GetSystemTheme() == Wpf.Ui.Appearance.SystemTheme.Dark
+                ? Wpf.Ui.Appearance.ApplicationTheme.Dark
+                : Wpf.Ui.Appearance.ApplicationTheme.Light,
+            _ => Wpf.Ui.Appearance.ApplicationTheme.Dark,
+        };
+
+        try
+        {
+            Wpf.Ui.Appearance.ApplicationThemeManager.Apply(appTheme, Wpf.Ui.Controls.WindowBackdropType.None, updateAccent: false);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[EasyShare] ApplyTheme failed: {ex.Message}");
+        }
     }
 
     private void SetupTrayIcon()
@@ -255,7 +270,15 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         var sf = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
         g.DrawString("ES", font, textBrush, new RectangleF(0, 0, 32, 32), sf);
 
-        return System.Drawing.Icon.FromHandle(bitmap.GetHicon());
+        var handle = bitmap.GetHicon();
+        try
+        {
+            return (Icon)System.Drawing.Icon.FromHandle(handle).Clone();
+        }
+        finally
+        {
+            NativeMethods.DestroyIcon(handle);
+        }
     }
 
     private static ContextMenu CreateTrayMenu()
@@ -757,13 +780,15 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
 
     private void SettingsButton_Click(object sender, RoutedEventArgs e)
     {
+        var oldAlias = _config.DeviceAlias;
+        var oldPort = _config.HttpPort;
+
         var window = new SettingsWindow(_config, _configPath);
         window.Owner = this;
         window.ShowDialog();
 
-        if (_config.DeviceAlias != window.AliasTextBox.Text || _config.HttpPort != (int.TryParse(window.PortBox.Text, out var p) ? p : 53317))
+        if (_config.DeviceAlias != oldAlias || _config.HttpPort != oldPort)
         {
-            LoadConfig();
             RestartServices();
         }
     }
@@ -783,6 +808,8 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
     public void Cleanup()
     {
         _isCleanedUp = true;
+        _trayIcon?.Dispose();
+        _trayIcon = null;
         _discovery?.DeviceFound -= OnDeviceFound;
         _discovery?.DeviceLost -= OnDeviceLost;
         _server?.UploadRequested -= OnUploadRequested;
@@ -860,4 +887,10 @@ public class HistoryEntry
     public string FileName { get; set; } = "";
     public string Direction { get; set; } = "";
     public DateTime Timestamp { get; set; }
+}
+
+internal static class NativeMethods
+{
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    internal static extern bool DestroyIcon(IntPtr hIcon);
 }

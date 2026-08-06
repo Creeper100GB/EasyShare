@@ -17,8 +17,11 @@ public partial class App : Application
         {
             if (e.Args.Length > 0)
             {
-                try { NamedPipeServer.SendFilesAsync(e.Args).Wait(5000); }
-                catch { }
+                _ = Task.Run(async () =>
+                {
+                    try { await NamedPipeServer.SendFilesAsync(e.Args); }
+                    catch { }
+                });
             }
             else
             {

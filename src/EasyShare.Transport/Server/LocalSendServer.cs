@@ -52,6 +52,7 @@ public class LocalSendServer
     public event EventHandler<UploadCancelledEventArgs>? UploadCancelled;
     public event EventHandler<UploadCompletedEventArgs>? UploadCompleted;
     private readonly X509Certificate2 _certificate;
+    private WebApplication? _app;
     private CancellationTokenSource? _cts;
     private int _port;
     private string _alias = "EasyShare";
@@ -127,6 +128,7 @@ public class LocalSendServer
             _pending.Remove(sessionId);
         }
         pending.Tcs.TrySetResult(new PrepareUploadResponse { SessionId = sessionId });
+        pending.UploadCts.Dispose();
     }
 
     public void CancelUpload(string sessionId)
@@ -139,6 +141,7 @@ public class LocalSendServer
             pending.Tcs.TrySetResult(new PrepareUploadResponse { SessionId = sessionId });
             pending.UploadCts.Cancel();
         }
+        pending.UploadCts.Dispose();
     }
 
     private async Task RunAsync(CancellationToken ct)
@@ -155,6 +158,7 @@ public class LocalSendServer
         });
 
         var app = builder.Build();
+        _app = app;
 
         app.MapGet("/", (HttpContext context) =>
         {
@@ -289,6 +293,7 @@ public class LocalSendServer
             catch (OperationCanceledException)
             {
                 lock (_lock) _pending.Remove(sessionId);
+                pending.UploadCts.Dispose();
                 return Results.StatusCode(StatusCodes.Status408RequestTimeout);
             }
 
@@ -396,6 +401,7 @@ public class LocalSendServer
             {
                 try { File.Delete(filePath); } catch { }
                 lock (_lock) _pending.Remove(sessionId);
+                pending.UploadCts.Dispose();
                 UploadCancelled?.Invoke(this, new UploadCancelledEventArgs { SessionId = sessionId, FileName = safeName });
                 return Results.StatusCode(499);
             }
@@ -414,6 +420,7 @@ public class LocalSendServer
 
             if (complete)
             {
+                pending.UploadCts.Dispose();
                 UploadCompleted?.Invoke(this, new UploadCompletedEventArgs
                 {
                     SessionId = sessionId,
@@ -526,6 +533,8 @@ public class LocalSendServer
     public void Stop()
     {
         _cts?.Cancel();
+        if (_app is not null)
+            _app.DisposeAsync().AsTask().Wait(TimeSpan.FromSeconds(5));
     }
 
     private const string WebHtml = """

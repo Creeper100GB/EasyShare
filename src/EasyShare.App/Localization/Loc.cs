@@ -9,8 +9,13 @@ public sealed class Loc : INotifyPropertyChanged
 {
     public static Loc Instance { get; } = new();
 
-    private Dictionary<string, string> _strings = new();
+    private Dictionary<string, string> _strings;
     private string _language = "de";
+
+    public Loc()
+    {
+        _strings = Load(_language);
+    }
 
     public string Language
     {
@@ -29,7 +34,15 @@ public sealed class Loc : INotifyPropertyChanged
     public string T(string key, params object[] args)
     {
         var s = this[key];
-        return args.Length > 0 ? string.Format(s, args) : s;
+        if (args.Length == 0) return s;
+        try
+        {
+            return string.Format(s, args);
+        }
+        catch (FormatException)
+        {
+            return s;
+        }
     }
 
     public static string Tr(string key, params object[] args) => Instance.T(key, args);
