@@ -1,5 +1,6 @@
 using System.IO;
 using System.Windows;
+using EasyShare.App.Localization;
 using EasyShare.Core.Config;
 using EasyShare.Shell;
 using Microsoft.Win32;
@@ -23,6 +24,7 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
         AutoAcceptCheckBox.IsChecked = _config.AutoAcceptTrusted;
         AutoStartCheckBox.IsChecked = _config.AutoStart;
         SpeedLimitSlider.Value = _config.SpeedLimitBytesPerSecond == 0 ? 0 : _config.SpeedLimitBytesPerSecond / 1_000_000.0;
+        SpeedLimitText.Text = SpeedLimitSlider.Value == 0 ? Loc.Tr("Settings.Unlimited") : $"{SpeedLimitSlider.Value:F0} MB/s";
 
         var themeIndex = _config.Theme switch
         {
@@ -31,18 +33,29 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
             _ => 2,
         };
         ThemeComboBox.SelectedIndex = themeIndex;
+
+        LanguageComboBox.SelectedIndex = _config.Language == "en" ? 1 : 0;
+
+        UpdateContextMenuButton();
+    }
+
+    private void UpdateContextMenuButton()
+    {
+        ContextMenuButton.Content = ShellIntegration.IsRegistered()
+            ? Loc.Tr("Settings.ContextMenuRemove")
+            : Loc.Tr("Settings.ContextMenu");
     }
 
     private void BrowseSavePath_Click(object sender, RoutedEventArgs e)
     {
-        var dialog = new SaveFileDialog { Filter = "Alle Dateien|*.*", Title = "Speicherort wählen" };
+        var dialog = new SaveFileDialog { Filter = "Alle Dateien|*.*", Title = Loc.Tr("Settings.SavePath") };
         if (dialog.ShowDialog() == true && !string.IsNullOrEmpty(dialog.FileName))
             SavePathTextBox.Text = Path.GetDirectoryName(dialog.FileName) ?? dialog.FileName;
     }
 
     private void SpeedLimitSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
     {
-        SpeedLimitText.Text = e.NewValue == 0 ? "Unbegrenzt" : $"{e.NewValue:F0} MB/s";
+        SpeedLimitText.Text = e.NewValue == 0 ? Loc.Tr("Settings.Unlimited") : $"{e.NewValue:F0} MB/s";
     }
 
     private void ThemeComboBox_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
@@ -61,26 +74,38 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
             mw.ApplyTheme(theme);
     }
 
+    private void LanguageComboBox_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+    {
+        if (!IsLoaded) return;
+
+        var lang = LanguageComboBox.SelectedIndex == 1 ? "en" : "de";
+        _config.Language = lang;
+        Loc.Instance.Language = lang;
+
+        UpdateContextMenuButton();
+    }
+
     private void ContextMenuButton_Click(object sender, RoutedEventArgs e)
     {
         try
         {
-            var exePath = System.Reflection.Assembly.GetEntryAssembly()?.Location
+            var exePath = Environment.ProcessPath
+                ?? System.Reflection.Assembly.GetEntryAssembly()?.Location
                 ?? System.Diagnostics.Process.GetCurrentProcess().MainModule!.FileName!;
             if (!ShellIntegration.IsRegistered())
             {
-                ShellIntegration.Register(exePath);
-                ContextMenuButton.Content = "Kontextmenü entfernt";
+                ShellIntegration.Register(exePath, Loc.Tr("Shell.ShareMenu"));
+                ContextMenuButton.Content = Loc.Tr("Settings.ContextMenuRemove");
             }
             else
             {
                 ShellIntegration.Unregister();
-                ContextMenuButton.Content = "Explorer-Kontextmenü registrieren";
+                ContextMenuButton.Content = Loc.Tr("Settings.ContextMenu");
             }
         }
         catch (Exception ex)
         {
-            MessageBox.Show($"Fehler: {ex.Message}", "EasyShare", MessageBoxButton.OK, MessageBoxImage.Error);
+            MessageBox.Show(Loc.Tr("Settings.Error", ex.Message), "EasyShare", MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
 
@@ -116,7 +141,7 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
 
         if (enable)
         {
-            var exe = System.Reflection.Assembly.GetEntryAssembly()?.Location ?? "";
+            var exe = Environment.ProcessPath ?? "";
             key.SetValue("EasyShare", $"\"{exe}\"");
         }
         else

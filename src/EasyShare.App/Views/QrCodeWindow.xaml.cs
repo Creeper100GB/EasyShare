@@ -10,7 +10,7 @@ public partial class QrCodeWindow : Wpf.Ui.Controls.FluentWindow
     public QrCodeWindow(string localIp, int port)
     {
         InitializeComponent();
-        var url = $"http://{localIp}:{port}";
+        var url = $"https://{localIp}:{port}";
         UrlText.Text = url;
 
         using var qrGenerator = new QRCodeGenerator();

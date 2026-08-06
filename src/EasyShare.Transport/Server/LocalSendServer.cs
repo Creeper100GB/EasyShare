@@ -2,6 +2,8 @@ using System.Net;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Text.Json;
+using Microsoft.AspNetCore.WebUtilities;
+using Microsoft.Net.Http.Headers;
 using EasyShare.Core;
 using EasyShare.Core.Models;
 
@@ -15,6 +17,21 @@ public class UploadRequestEventArgs : EventArgs
     public string Fingerprint { get; set; } = string.Empty;
 }
 
+public class UploadProgressEventArgs : EventArgs
+{
+    public string SessionId { get; set; } = string.Empty;
+    public string FileName { get; set; } = string.Empty;
+    public long BytesReceived { get; set; }
+    public long TotalBytes { get; set; }
+    public double BytesPerSecond { get; set; }
+}
+
+public class UploadCancelledEventArgs : EventArgs
+{
+    public string SessionId { get; set; } = string.Empty;
+    public string FileName { get; set; } = string.Empty;
+}
+
 public class UploadCompletedEventArgs : EventArgs
 {
     public string SessionId { get; set; } = string.Empty;
@@ -26,6 +43,8 @@ public class UploadCompletedEventArgs : EventArgs
 public class LocalSendServer
 {
     public event EventHandler<UploadRequestEventArgs>? UploadRequested;
+    public event EventHandler<UploadProgressEventArgs>? UploadProgress;
+    public event EventHandler<UploadCancelledEventArgs>? UploadCancelled;
     public event EventHandler<UploadCompletedEventArgs>? UploadCompleted;
     private readonly X509Certificate2 _certificate;
     private CancellationTokenSource? _cts;
@@ -43,6 +62,7 @@ public class LocalSendServer
         public Dictionary<string, string> Tokens { get; set; } = new();
         public HashSet<string> Received { get; set; } = new();
         public TaskCompletionSource<PrepareUploadResponse> Tcs { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public CancellationTokenSource UploadCts { get; } = new();
     }
 
     public LocalSendServer(X509Certificate2 certificate)
@@ -98,12 +118,25 @@ public class LocalSendServer
         pending.Tcs.TrySetResult(new PrepareUploadResponse { SessionId = sessionId });
     }
 
+    public void CancelUpload(string sessionId)
+    {
+        PendingUpload? pending;
+        lock (_lock)
+        {
+            if (!_pending.TryGetValue(sessionId, out pending)) return;
+            _pending.Remove(sessionId);
+            pending.Tcs.TrySetResult(new PrepareUploadResponse { SessionId = sessionId });
+            pending.UploadCts.Cancel();
+        }
+    }
+
     private async Task RunAsync(CancellationToken ct)
     {
         var builder = WebApplication.CreateSlimBuilder();
 
         builder.WebHost.ConfigureKestrel(options =>
         {
+            options.Limits.MaxRequestBodySize = null;
             options.ListenAnyIP(_port, listen =>
             {
                 listen.UseHttps(_certificate);
@@ -116,7 +149,8 @@ public class LocalSendServer
 
         app.MapPost("/upload", async (HttpContext context) =>
         {
-            if (!context.Request.HasFormContentType)
+            var boundary = GetMultipartBoundary(context.Request.ContentType);
+            if (boundary is null)
             {
                 context.Response.StatusCode = 400;
                 return;
@@ -125,12 +159,17 @@ public class LocalSendServer
             var savePath = GetDefaultSavePath();
             Directory.CreateDirectory(savePath);
 
-            foreach (var file in context.Request.Form.Files)
+            var reader = new MultipartReader(boundary, context.Request.Body);
+            MultipartSection? section;
+            while ((section = await reader.ReadNextSectionAsync()) != null)
             {
-                var safeName = SanitizeFileName(file.FileName);
-                var filePath = Path.Combine(savePath, safeName);
-                using var stream = File.Create(filePath);
-                await file.CopyToAsync(stream);
+                var disposition = section.GetContentDispositionHeader();
+                if (disposition is null || !disposition.IsFileDisposition()) continue;
+
+                var safeName = SanitizeFileName(disposition.FileName.Value ?? "file");
+                var filePath = GetUniquePath(savePath, safeName);
+                await using var stream = File.Create(filePath);
+                await section.Body.CopyToAsync(stream);
             }
 
             context.Response.StatusCode = 200;
@@ -210,18 +249,41 @@ public class LocalSendServer
 
         app.MapPost("/api/localsend/v2/upload", async (HttpContext context) =>
         {
-            if (!context.Request.HasFormContentType)
+            var boundary = GetMultipartBoundary(context.Request.ContentType);
+            if (boundary is null)
             {
                 return Results.BadRequest();
             }
 
-            var form = await context.Request.ReadFormAsync();
-            var sessionId = form["sessionId"].ToString();
-            var fileId = form["fileId"].ToString();
-            var token = form["token"].ToString();
-            var file = form.Files.FirstOrDefault();
+            string sessionId = "", fileId = "", token = "";
+            string? fileName = null;
+            MultipartSection? fileSection = null;
 
-            if (string.IsNullOrEmpty(sessionId) || string.IsNullOrEmpty(fileId) || string.IsNullOrEmpty(token) || file is null)
+            var reader = new MultipartReader(boundary, context.Request.Body);
+            MultipartSection? section;
+            while ((section = await reader.ReadNextSectionAsync()) != null)
+            {
+                var disposition = section.GetContentDispositionHeader();
+                if (disposition is null) continue;
+
+                if (disposition.IsFileDisposition())
+                {
+                    fileSection = section;
+                    fileName = disposition.FileName.Value;
+                    continue;
+                }
+
+                using var sr = new StreamReader(section.Body);
+                var value = await sr.ReadToEndAsync();
+                switch (disposition.Name.Value)
+                {
+                    case "sessionId": sessionId = value; break;
+                    case "fileId": fileId = value; break;
+                    case "token": token = value; break;
+                }
+            }
+
+            if (fileSection is null || string.IsNullOrEmpty(sessionId) || string.IsNullOrEmpty(fileId) || string.IsNullOrEmpty(token))
             {
                 return Results.BadRequest();
             }
@@ -235,13 +297,55 @@ public class LocalSendServer
                 }
             }
 
-            var safeName = SanitizeFileName(file.FileName);
+            var fileEntry = pending.Files.FirstOrDefault(f => f.Id == fileId);
+            var safeName = SanitizeFileName(fileName ?? fileEntry?.FileName ?? "file");
             var savePath = GetDefaultSavePath();
             Directory.CreateDirectory(savePath);
             var filePath = GetUniquePath(savePath, safeName);
-            using (var stream = File.Create(filePath))
+
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            long bytesReceived = 0;
+            var totalBytes = fileEntry?.Size ?? 0;
+            var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted, pending.UploadCts.Token);
+            bool writeSucceeded = false;
+
+            try
             {
-                await file.CopyToAsync(stream);
+                await using (var stream = File.Create(filePath))
+                {
+                    var buffer = new byte[262144];
+                    while (true)
+                    {
+                        int read = await fileSection.Body.ReadAsync(buffer.AsMemory(0, buffer.Length), linkedCts.Token);
+                        if (read <= 0) break;
+                        await stream.WriteAsync(buffer.AsMemory(0, read), linkedCts.Token);
+                        bytesReceived += read;
+
+                        if (bytesReceived % 262144 == 0 || bytesReceived >= totalBytes)
+                        {
+                            UploadProgress?.Invoke(this, new UploadProgressEventArgs
+                            {
+                                SessionId = sessionId,
+                                FileName = safeName,
+                                BytesReceived = bytesReceived,
+                                TotalBytes = totalBytes,
+                                BytesPerSecond = bytesReceived / sw.Elapsed.TotalSeconds,
+                            });
+                        }
+                    }
+                }
+                writeSucceeded = true;
+            }
+            catch (OperationCanceledException)
+            {
+                try { File.Delete(filePath); } catch { }
+                lock (_lock) _pending.Remove(sessionId);
+                UploadCancelled?.Invoke(this, new UploadCancelledEventArgs { SessionId = sessionId, FileName = safeName });
+                return Results.StatusCode(499);
+            }
+            finally
+            {
+                linkedCts.Dispose();
             }
 
             bool complete;
@@ -258,7 +362,7 @@ public class LocalSendServer
                 {
                     SessionId = sessionId,
                     FileName = safeName,
-                    Size = file.Length,
+                    Size = writeSucceeded ? bytesReceived : 0,
                     SavePath = filePath,
                 });
             }
@@ -287,6 +391,19 @@ public class LocalSendServer
     {
         var invalid = Path.GetInvalidFileNameChars();
         return new string(name.Select(c => invalid.Contains(c) ? '_' : c).ToArray());
+    }
+
+    private static string? GetMultipartBoundary(string? contentType)
+    {
+        if (string.IsNullOrEmpty(contentType)) return null;
+        var parts = contentType.Split(';');
+        foreach (var part in parts)
+        {
+            var trimmed = part.Trim();
+            if (trimmed.StartsWith("boundary=", StringComparison.OrdinalIgnoreCase))
+                return trimmed["boundary=".Length..].Trim('"');
+        }
+        return null;
     }
 
     private static string GetUniquePath(string dir, string fileName)

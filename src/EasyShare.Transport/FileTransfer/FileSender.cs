@@ -18,6 +18,11 @@ public class FileSender : IDisposable
     private readonly HttpClient _client;
     private readonly bool _useTls;
 
+    private long _totalBytes;
+    private long _bytesSent;
+    private long _lastSpeedBytes;
+    private long _lastSpeedTimestamp;
+
     public double CurrentBytesPerSecond { get; private set; }
 
     public event EventHandler<double>? ProgressChanged;
@@ -43,7 +48,7 @@ public class FileSender : IDisposable
         }
 
         _client = new HttpClient(handler);
-        _client.Timeout = TimeSpan.FromMinutes(30);
+        _client.Timeout = Timeout.InfiniteTimeSpan;
     }
 
     private bool ValidateCertificate(HttpRequestMessage request, X509Certificate2? cert, X509Chain? chain, System.Net.Security.SslPolicyErrors errors)
@@ -57,6 +62,10 @@ public class FileSender : IDisposable
     public async Task SendAsync(TransferSession session, CancellationToken ct = default)
     {
         StatusChanged?.Invoke(this, TransferStatus.Active);
+        _totalBytes = session.Files.Sum(f => f.Size);
+        _bytesSent = 0;
+        _lastSpeedBytes = 0;
+        _lastSpeedTimestamp = Stopwatch.GetTimestamp();
         var scheme = _useTls ? "https" : "http";
         var baseUrl = $"{scheme}://{_targetIp}:{_targetPort}";
 
@@ -74,11 +83,9 @@ public class FileSender : IDisposable
                 var file = session.Files[i];
                 var token = prepare.Files.TryGetValue(file.Id, out var t) ? t : throw new KeyNotFoundException($"Server did not return token for file {file.Id}");
                 await UploadFileAsync(baseUrl, prepare.SessionId, file, token, ct);
-
-                var totalProgress = (double)(i + 1) / session.Files.Count;
-                ProgressChanged?.Invoke(this, totalProgress);
             }
 
+            ProgressChanged?.Invoke(this, 1.0);
             StatusChanged?.Invoke(this, TransferStatus.Completed);
         }
         catch (OperationCanceledException)
@@ -113,24 +120,88 @@ public class FileSender : IDisposable
     private async Task UploadFileAsync(string baseUrl, string sessionId, FileEntry file, string token, CancellationToken ct)
     {
         await using var fileStream = File.OpenRead(file.LocalFilePath!);
+        using var progressStream = new ProgressStream(fileStream, OnBytesSent);
         using var form = new MultipartFormDataContent();
         form.Add(new StringContent(sessionId), "sessionId");
         form.Add(new StringContent(file.Id), "fileId");
         form.Add(new StringContent(token), "token");
-        form.Add(new StreamContent(fileStream), "file", file.FileName);
-
-        var sw = Stopwatch.StartNew();
+        form.Add(new StreamContent(progressStream), "file", file.FileName);
 
         using var response = await _client.PostAsync($"{baseUrl}{_apiBase}/upload", form, ct);
+        if ((int)response.StatusCode == 499)
+            throw new OperationCanceledException("Receiver cancelled the upload");
         response.EnsureSuccessStatusCode();
-        sw.Stop();
+    }
 
-        if (sw.Elapsed.TotalSeconds > 0)
-            CurrentBytesPerSecond = file.Size / sw.Elapsed.TotalSeconds;
+    private void OnBytesSent(long bytes)
+    {
+        if (bytes <= 0) return;
+        _bytesSent += bytes;
+
+        var now = Stopwatch.GetTimestamp();
+        var elapsedSeconds = (now - _lastSpeedTimestamp) / (double)Stopwatch.Frequency;
+        if (elapsedSeconds >= 0.5)
+        {
+            CurrentBytesPerSecond = (_bytesSent - _lastSpeedBytes) / elapsedSeconds;
+            _lastSpeedBytes = _bytesSent;
+            _lastSpeedTimestamp = now;
+        }
+
+        if (_totalBytes > 0)
+            ProgressChanged?.Invoke(this, Math.Min(1.0, (double)_bytesSent / _totalBytes));
     }
 
     public void Dispose()
     {
         _client.Dispose();
+    }
+
+    private sealed class ProgressStream : Stream
+    {
+        private readonly Stream _inner;
+        private readonly Action<long> _onBytesRead;
+
+        public ProgressStream(Stream inner, Action<long> onBytesRead)
+        {
+            _inner = inner;
+            _onBytesRead = onBytesRead;
+        }
+
+        public override bool CanRead => _inner.CanRead;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => _inner.Length;
+        public override long Position { get => _inner.Position; set => throw new NotSupportedException(); }
+
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            int n = _inner.Read(buffer, offset, count);
+            if (n > 0) _onBytesRead(n);
+            return n;
+        }
+
+        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken ct = default)
+        {
+            int n = await _inner.ReadAsync(buffer, ct);
+            if (n > 0) _onBytesRead(n);
+            return n;
+        }
+
+        public override async Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken ct)
+        {
+            int n = await _inner.ReadAsync(buffer, offset, count, ct);
+            if (n > 0) _onBytesRead(n);
+            return n;
+        }
+
+        public override void Flush() => _inner.Flush();
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing) _inner.Dispose();
+            base.Dispose(disposing);
+        }
     }
 }

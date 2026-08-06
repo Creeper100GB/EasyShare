@@ -11,6 +11,15 @@ public class TransferViewModel : INotifyPropertyChanged
     private string _speedText = string.Empty;
     private string _statusText = string.Empty;
     private TransferStatus _status;
+    private bool _canCancel;
+
+    public Action? CancelAction { get; set; }
+
+    public bool CanCancel
+    {
+        get => _canCancel;
+        set => SetProperty(ref _canCancel, value);
+    }
 
     public string FileName
     {

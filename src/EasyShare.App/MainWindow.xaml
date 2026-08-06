@@ -4,7 +4,9 @@
   xmlns:wpfui="http://schemas.lepo.co/wpfui/2022/xaml"
   xmlns:converters="clr-namespace:EasyShare.App.Converters"
   xmlns:views="clr-namespace:EasyShare.App.Views"
-  Title="EasyShare"
+  xmlns:loc="clr-namespace:EasyShare.App.Localization"
+  xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
+  Title="{Binding [App.Title], Source={x:Static loc:Loc.Instance}}"
   Width="920" Height="660"
   MinWidth="720" MinHeight="520"
   ExtendsContentIntoTitleBar="True"
@@ -18,16 +20,31 @@
     <BooleanToVisibilityConverter x:Key="BoolToVis"/>
 
     <DataTemplate x:Key="DeviceTemplate">
-      <Border x:Name="DeviceCard" Background="#1e1e1e" CornerRadius="6" Padding="10,8" Margin="0,0,0,4"
-              BorderBrush="#333333" BorderThickness="1" Cursor="Hand" MouseLeftButtonUp="DeviceCard_Click">
+      <Border x:Name="DeviceCard" CornerRadius="6" Padding="10,8" Margin="0,0,0,4"
+              Cursor="Hand" MouseLeftButtonUp="DeviceCard_Click">
+        <Border.Style>
+          <Style TargetType="Border">
+            <Setter Property="Background" Value="#1e1e1e"/>
+            <Setter Property="BorderBrush" Value="#333333"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Style.Triggers>
+              <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                <Setter Property="BorderBrush" Value="#4ade80"/>
+                <Setter Property="BorderThickness" Value="2.5"/>
+                <Setter Property="Background" Value="#1a2b22"/>
+              </DataTrigger>
+            </Style.Triggers>
+          </Style>
+        </Border.Style>
         <StackPanel>
           <StackPanel Orientation="Horizontal">
             <TextBlock Text="{Binding DeviceType, Converter={StaticResource DeviceTypeToIcon}}"
                        FontSize="16" VerticalAlignment="Center" Margin="0,0,8,0"/>
             <TextBlock Text="{Binding Alias}" FontWeight="SemiBold" FontSize="14"
                        VerticalAlignment="Center"/>
-            <TextBlock x:Name="SelectedIndicator" Text=" &lt;" FontSize="12" Foreground="#4ade80"
-                       Visibility="Collapsed" VerticalAlignment="Center"/>
+            <TextBlock Text="&#x2713;" FontSize="12" Foreground="#4ade80"
+                       Visibility="{Binding IsSelected, Converter={StaticResource BoolToVis}}"
+                       VerticalAlignment="Center"/>
           </StackPanel>
           <TextBlock Text="{Binding DeviceModel}" FontSize="11" Foreground="Gray" Margin="24,2,0,0"/>
           <TextBlock Text="{Binding IpAddress}" FontSize="11" Foreground="Gray" Margin="24,0,0,0"/>
@@ -38,17 +55,28 @@
     <DataTemplate x:Key="TransferTemplate">
       <Border Background="#1e1e1e" CornerRadius="6" Padding="10,8" Margin="0,0,0,4"
               BorderBrush="#333333" BorderThickness="1">
-        <StackPanel>
-          <TextBlock Text="{Binding FileName}" FontSize="12" FontWeight="Medium"
-                     TextTrimming="CharacterEllipsis"/>
-          <ProgressBar Value="{Binding Progress}" Height="6" Margin="0,4,0,2"
-                       Minimum="0" Maximum="1" SmallChange="0.01" LargeChange="0.1"/>
-          <StackPanel Orientation="Horizontal">
-            <TextBlock Text="{Binding SpeedText}" FontSize="11" Foreground="Gray" Margin="0,0,8,0"/>
-            <TextBlock Text="{Binding StatusText}" FontSize="11"
-                       Foreground="{Binding Status, Converter={StaticResource StatusToColor}}"/>
+        <Grid>
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*"/>
+            <ColumnDefinition Width="Auto"/>
+          </Grid.ColumnDefinitions>
+          <StackPanel Grid.Column="0">
+            <TextBlock Text="{Binding FileName}" FontSize="12" FontWeight="Medium"
+                       TextTrimming="CharacterEllipsis"/>
+            <ProgressBar Value="{Binding Progress}" Height="18" Margin="0,4,0,2"
+                         Minimum="0" Maximum="1" SmallChange="0.01" LargeChange="0.1"
+                         Foreground="#4ade80"/>
+            <StackPanel Orientation="Horizontal">
+              <TextBlock Text="{Binding SpeedText}" FontSize="11" Foreground="Gray" Margin="0,0,8,0"/>
+              <TextBlock Text="{Binding StatusText}" FontSize="11"
+                         Foreground="{Binding Status, Converter={StaticResource StatusToColor}}"/>
+            </StackPanel>
           </StackPanel>
-        </StackPanel>
+          <Button Grid.Column="1" Content="{Binding [Transfer.Cancel], Source={x:Static loc:Loc.Instance}}"
+                  FontSize="11" Padding="8,3" Margin="8,0,0,0" VerticalAlignment="Center"
+                  Visibility="{Binding CanCancel, Converter={StaticResource BoolToVis}}"
+                  Click="CancelTransfer_Click"/>
+        </Grid>
       </Border>
     </DataTemplate>
 
@@ -71,11 +99,12 @@
     </Grid.RowDefinitions>
 
     <Grid Grid.Row="0">
-      <wpfui:TitleBar Title="EasyShare"/>
+      <wpfui:TitleBar Title="{Binding [App.Title], Source={x:Static loc:Loc.Instance}}"/>
       <StackPanel Orientation="Horizontal" HorizontalAlignment="Right"
-                  VerticalAlignment="Top" Margin="0,6,150,0">
-        <Button x:Name="QrButton" Content="QR-Empfang" Padding="10,4" Margin="0,0,4,0" Click="QrButton_Click" ToolTip="QR-Code für Zero-Install Empfang anzeigen"/>
-        <Button x:Name="SettingsButton" Content="Einstellungen" Padding="10,4" Click="SettingsButton_Click" ToolTip="Einstellungen öffnen"/>
+                  VerticalAlignment="Top" Margin="0,6,150,0"
+                  shell:WindowChrome.IsHitTestVisibleInChrome="True">
+        <Button x:Name="QrButton" Content="{Binding [Main.QrButton], Source={x:Static loc:Loc.Instance}}" Padding="10,4" Margin="0,0,4,0" Click="QrButton_Click" ToolTip="{Binding [Main.QrButtonTooltip], Source={x:Static loc:Loc.Instance}}"/>
+        <Button x:Name="SettingsButton" Content="{Binding [Main.SettingsButton], Source={x:Static loc:Loc.Instance}}" Padding="10,4" Click="SettingsButton_Click" ToolTip="{Binding [Main.SettingsButtonTooltip], Source={x:Static loc:Loc.Instance}}"/>
       </StackPanel>
     </Grid>
 
@@ -88,10 +117,10 @@
           <ColumnDefinition Width="Auto"/>
         </Grid.ColumnDefinitions>
         <StackPanel Grid.Column="0">
-          <TextBlock Text="Neue Version verfügbar" FontSize="13" FontWeight="SemiBold" Foreground="#93c5fd"/>
+          <TextBlock Text="{Binding [Main.UpdateAvailable], Source={x:Static loc:Loc.Instance}}" FontSize="13" FontWeight="SemiBold" Foreground="#93c5fd"/>
           <TextBlock x:Name="UpdateVersionText" FontSize="11" Foreground="#93c5fd" Opacity="0.7"/>
         </StackPanel>
-        <Button Grid.Column="1" x:Name="UpdateButton" Content="Aktualisieren" Padding="12,4"
+        <Button Grid.Column="1" x:Name="UpdateButton" Content="{Binding [Main.UpdateButton], Source={x:Static loc:Loc.Instance}}" Padding="12,4"
                 Click="UpdateButton_Click" FontSize="12"/>
       </Grid>
     </Border>
@@ -103,22 +132,27 @@
       </Grid.ColumnDefinitions>
 
       <StackPanel Grid.Column="0" Margin="0,0,8,0">
-        <TextBlock Text="Geräte in der Nähe" FontSize="16" FontWeight="SemiBold" Margin="4,0,4,8"/>
+        <TextBlock Text="{Binding [Main.DevicesHeader], Source={x:Static loc:Loc.Instance}}" FontSize="16" FontWeight="SemiBold" Margin="4,0,4,8"/>
         <ScrollViewer MaxHeight="220" VerticalScrollBarVisibility="Auto">
           <ItemsControl x:Name="DeviceList" ItemTemplate="{StaticResource DeviceTemplate}"/>
         </ScrollViewer>
 
-        <TextBlock x:Name="SelectedDeviceText" Text="Kein Zielgerät ausgewählt" FontSize="12"
-                   Foreground="#fbbf24" Margin="4,8,4,8" TextWrapping="Wrap"/>
+        <StackPanel Orientation="Horizontal" Margin="4,8,4,8">
+          <TextBlock x:Name="SelectedDeviceText" FontSize="12"
+                     Foreground="#fbbf24" TextWrapping="Wrap"/>
+          <Button x:Name="DeselectButton" Content="{Binding [Main.Deselect], Source={x:Static loc:Loc.Instance}}"
+                  FontSize="11" Padding="8,2" Margin="8,0,0,0" Click="DeselectButton_Click"
+                  Visibility="Collapsed"/>
+        </StackPanel>
 
         <Separator Margin="4,4"/>
-        <TextBlock Text="Aktive Übertragungen" FontSize="16" FontWeight="SemiBold" Margin="4,0,4,8"/>
+        <TextBlock Text="{Binding [Main.TransferHeader], Source={x:Static loc:Loc.Instance}}" FontSize="16" FontWeight="SemiBold" Margin="4,0,4,8"/>
         <ScrollViewer MaxHeight="180" VerticalScrollBarVisibility="Auto">
           <ItemsControl x:Name="TransferList" ItemTemplate="{StaticResource TransferTemplate}"/>
         </ScrollViewer>
 
         <Separator Margin="4,4"/>
-        <TextBlock Text="Verlauf" FontSize="14" FontWeight="SemiBold" Margin="4,0,4,8"/>
+        <TextBlock Text="{Binding [Main.HistoryHeader], Source={x:Static loc:Loc.Instance}}" FontSize="14" FontWeight="SemiBold" Margin="4,0,4,8"/>
         <ScrollViewer MaxHeight="120" VerticalScrollBarVisibility="Auto">
           <ItemsControl x:Name="HistoryList" ItemTemplate="{StaticResource HistoryTemplate}"/>
         </ScrollViewer>
@@ -135,17 +169,17 @@
                 Background="#1e1e1e" Padding="32"
                 AllowDrop="True" Drop="DropZone_Drop" Margin="4">
           <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
-            <TextBlock Text="Dateien hier ablegen" FontSize="20" FontWeight="SemiBold"
+            <TextBlock Text="{Binding [Main.DropZone], Source={x:Static loc:Loc.Instance}}" FontSize="20" FontWeight="SemiBold"
                        Foreground="Gray" HorizontalAlignment="Center"/>
-            <TextBlock Text="oder per Rechtsklick im Explorer teilen" FontSize="12"
+            <TextBlock Text="{Binding [Main.DropZoneHint], Source={x:Static loc:Loc.Instance}}" FontSize="12"
                        Foreground="LightGray" HorizontalAlignment="Center" Margin="0,4,0,0"/>
           </StackPanel>
         </Border>
 
         <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="4,8">
-          <Button x:Name="SelectFilesButton" Content="Dateien auswählen..."
+          <Button x:Name="SelectFilesButton" Content="{Binding [Main.SelectFiles], Source={x:Static loc:Loc.Instance}}"
                   Padding="16,6" Click="SelectFilesButton_Click"/>
-          <TextBlock x:Name="StatusText" Text="Bereit" Foreground="Gray"
+          <TextBlock x:Name="StatusText" Text="{Binding [Main.StatusReady], Source={x:Static loc:Loc.Instance}}" Foreground="Gray"
                      VerticalAlignment="Center" Margin="12,0,0,0"/>
         </StackPanel>
       </Grid>

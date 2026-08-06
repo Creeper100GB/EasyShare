@@ -56,7 +56,7 @@ public class MulticastDiscovery : IDisposable
         }
     }
 
-    private static List<IPAddress> GetLocalIpv4Addresses()
+    public static List<IPAddress> GetLocalIpv4Addresses()
     {
         var result = new List<IPAddress>();
         foreach (var nic in NetworkInterface.GetAllNetworkInterfaces())

@@ -1,4 +1,5 @@
 using System.Windows;
+using EasyShare.App.Localization;
 using EasyShare.Core.Models;
 
 namespace EasyShare.App.Views;
@@ -11,7 +12,7 @@ public partial class ReceiveDialog : Wpf.Ui.Controls.FluentWindow
     public ReceiveDialog(string senderAlias, List<FileEntry> files, string fingerprint)
     {
         InitializeComponent();
-        SenderText.Text = $"{senderAlias} möchte {files.Count} Datei(en) senden:";
+        SenderText.Text = Loc.Tr("Receive.SenderWants", senderAlias, files.Count);
 
         foreach (var file in files)
         {
@@ -22,7 +23,7 @@ public partial class ReceiveDialog : Wpf.Ui.Controls.FluentWindow
         }
 
         var totalSize = files.Sum(f => f.Size);
-        TotalSizeText.Text = $"Gesamt: {FormatSize(totalSize)}";
+        TotalSizeText.Text = Loc.Tr("Receive.Total", FormatSize(totalSize));
 
         Tag = fingerprint;
     }

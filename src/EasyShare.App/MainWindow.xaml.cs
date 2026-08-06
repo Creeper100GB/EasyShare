@@ -22,6 +22,7 @@ using EasyShare.Transport.FileTransfer;
 using EasyShare.Transport.Server;
 using EasyShare.Shell;
 using EasyShare.App.Views;
+using EasyShare.App.Localization;
 using H.NotifyIcon;
 using Microsoft.Win32;
 using CoreProtocolType = EasyShare.Core.Models.ProtocolType;
@@ -47,9 +48,11 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
     private bool _isCleanedUp;
     private UpdateService? _updateService;
     private readonly Dictionary<string, TransferViewModel> _receiveTransfers = new();
+    private readonly Dictionary<TransferViewModel, CancellationTokenSource> _sendCancels = new();
     private readonly CancellationTokenSource _cts = new();
     private UpdateInfo? _pendingUpdate;
     private DeviceViewModel? _selectedDevice;
+    private readonly List<string> _pendingFiles = new();
 
     public MainWindow()
     {
@@ -64,13 +67,35 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         HistoryList.ItemsSource = History;
 
         LoadConfig();
+        Loc.Instance.Language = _config.Language;
         InitializeServices();
         SetupTrayIcon();
         StartServices();
         ApplyTheme(_config.Theme);
         CheckForUpdatesAsync();
+        ConsumeShareArgs();
 
         DropZone.DragOver += DropZone_DragOver;
+    }
+
+    private void ConsumeShareArgs()
+    {
+        if (App.ShareArgs.Length == 0) return;
+        var paths = App.ShareArgs.Where(p => File.Exists(p) || Directory.Exists(p)).ToArray();
+        App.SetShareArgs(Array.Empty<string>());
+        if (paths.Length == 0) return;
+
+        if (_selectedDevice is not null)
+        {
+            SendFiles(paths, _selectedDevice);
+        }
+        else
+        {
+            _pendingFiles.AddRange(paths);
+            StatusText.Text = Loc.Tr("Main.PendingFiles", _pendingFiles.Count);
+            Show();
+            Activate();
+        }
     }
 
     private void LoadConfig()
@@ -115,6 +140,8 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         _discovery.DeviceFound += OnDeviceFound;
         _discovery.DeviceLost += OnDeviceLost;
         _server.UploadRequested += OnUploadRequested;
+        _server.UploadProgress += OnUploadProgress;
+        _server.UploadCancelled += OnUploadCancelled;
         _server.UploadCompleted += OnUploadCompleted;
 
         RegisterContextMenu();
@@ -129,7 +156,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
             {
                 var exePath = Environment.ProcessPath;
                 if (!string.IsNullOrEmpty(exePath))
-                    ShellIntegration.Register(exePath);
+                    ShellIntegration.Register(exePath, Loc.Tr("Shell.ShareMenu"));
             }
         }
         catch (Exception ex)
@@ -150,8 +177,17 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
                     {
                         Dispatcher.Invoke(() =>
                         {
-                            var target = _selectedDevice ?? Devices.FirstOrDefault();
-                            if (target != null) SendFiles(files, target);
+                            if (_selectedDevice is not null)
+                            {
+                                SendFiles(files, _selectedDevice);
+                            }
+                            else
+                            {
+                                _pendingFiles.AddRange(files);
+                                StatusText.Text = Loc.Tr("Main.PendingFiles", _pendingFiles.Count);
+                                Show();
+                                Activate();
+                            }
                         });
                     }, _cts.Token);
                 }
@@ -166,7 +202,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         var self = BuildAnnouncement();
         _discovery?.Start(self);
         _server?.Start(_config.HttpPort, _config.DeviceAlias, _fingerprint, _config.DefaultSavePath);
-        StatusText.Text = "Bereit";
+        StatusText.Text = Loc.Tr("Main.StatusReady");
     }
 
     private DeviceAnnouncement BuildAnnouncement() => new()
@@ -224,14 +260,14 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
     {
         var menu = new ContextMenu();
 
-        var showItem = new MenuItem { Header = "Zeigen" };
+        var showItem = new MenuItem { Header = Loc.Tr("Tray.Show") };
         showItem.Click += (_, _) =>
         {
             if (Application.Current.MainWindow is MainWindow w)
                 w.ToggleWindowVisibility();
         };
 
-        var exitItem = new MenuItem { Header = "Beenden" };
+        var exitItem = new MenuItem { Header = Loc.Tr("Tray.Exit") };
         exitItem.Click += (_, _) =>
         {
             if (Application.Current.MainWindow is MainWindow w)
@@ -268,14 +304,14 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
             Devices.Add(new DeviceViewModel
             {
                 Alias = device.Alias,
-                DeviceModel = device.DeviceModel ?? "Unbekannt",
+                DeviceModel = device.DeviceModel ?? Loc.Tr("Main.DeviceUnknown"),
                 IpAddress = device.IpAddress,
                 DeviceType = device.DeviceType ?? DeviceType.Desktop,
                 Fingerprint = device.Fingerprint,
                 Port = device.Port > 0 ? device.Port : 53317,
             });
 
-            StatusText.Text = $"{Devices.Count} Gerät(e) gefunden";
+            StatusText.Text = Loc.Tr("Main.StatusDevicesFound", Devices.Count);
         });
     }
 
@@ -288,12 +324,12 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
             {
                 Devices.Remove(existing);
                 if (_selectedDevice == existing)
-                    _selectedDevice = null;
+                    ClearSelection();
             }
 
             StatusText.Text = Devices.Count > 0
-                ? $"{Devices.Count} Gerät(e) gefunden"
-                : "Bereit";
+                ? Loc.Tr("Main.StatusDevicesFound", Devices.Count)
+                : Loc.Tr("Main.StatusReady");
             UpdateSelectedDeviceText();
         });
     }
@@ -302,6 +338,12 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
     {
         if (sender is FrameworkElement fe && fe.DataContext is DeviceViewModel device)
         {
+            if (_selectedDevice == device)
+            {
+                ClearSelection();
+                return;
+            }
+
             _selectedDevice = device;
             UpdateSelectedDeviceText();
 
@@ -310,14 +352,40 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
                 if (item is DeviceViewModel d)
                     d.IsSelected = d.Fingerprint == device.Fingerprint;
             }
+
+            FlushPendingFiles();
         }
+    }
+
+    private void DeselectButton_Click(object sender, RoutedEventArgs e) => ClearSelection();
+
+    private void ClearSelection()
+    {
+        _selectedDevice = null;
+        foreach (var item in DeviceList.Items)
+        {
+            if (item is DeviceViewModel d)
+                d.IsSelected = false;
+        }
+        UpdateSelectedDeviceText();
+    }
+
+    private void FlushPendingFiles()
+    {
+        if (_selectedDevice is null || _pendingFiles.Count == 0) return;
+
+        var files = _pendingFiles.ToArray();
+        _pendingFiles.Clear();
+        StatusText.Text = Loc.Tr("Main.SendingPending", files.Length);
+        SendFiles(files, _selectedDevice);
     }
 
     private void UpdateSelectedDeviceText()
     {
         SelectedDeviceText.Text = _selectedDevice is not null
-            ? $"Ziel: {_selectedDevice.Alias}"
-            : "Kein Zielgerät ausgewählt";
+            ? Loc.Tr("Main.TargetDevice", _selectedDevice.Alias)
+            : Loc.Tr("Main.NoDeviceSelected");
+        DeselectButton.Visibility = _selectedDevice is not null ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void DropZone_DragOver(object sender, DragEventArgs e)
@@ -333,7 +401,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         if (e.Data.GetData(DataFormats.FileDrop) is string[] files && files.Length > 0)
         {
             if (_selectedDevice is null)
-            { StatusText.Text = "Bitte zuerst ein Zielgerät auswählen"; return; }
+            { StatusText.Text = Loc.Tr("Main.SelectDeviceFirst"); return; }
 
             SendFiles(files, _selectedDevice);
         }
@@ -342,9 +410,9 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
     private void SelectFilesButton_Click(object sender, RoutedEventArgs e)
     {
         if (_selectedDevice is null)
-        { StatusText.Text = "Bitte zuerst ein Zielgerät auswählen"; return; }
+        { StatusText.Text = Loc.Tr("Main.SelectDeviceFirst"); return; }
 
-        var dialog = new OpenFileDialog { Multiselect = true, Title = "Dateien auswählen" };
+        var dialog = new OpenFileDialog { Multiselect = true, Title = Loc.Tr("Main.SelectFilesDialog") };
         if (dialog.ShowDialog() == true)
             SendFiles(dialog.FileNames, _selectedDevice);
     }
@@ -364,12 +432,13 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
 
         var transfer = new TransferViewModel
         {
-            FileName = filePaths.Length == 1 ? Path.GetFileName(filePaths[0]) : $"{filePaths.Length} Dateien an {target.Alias}",
-            Progress = 0, SpeedText = string.Empty, StatusText = "Wird vorbereitet...", Status = TransferStatus.Pending,
+            FileName = filePaths.Length == 1 ? Path.GetFileName(filePaths[0]) : Loc.Tr("Transfer.FilesTo", filePaths.Length, target.Alias),
+            Progress = 0, SpeedText = string.Empty, StatusText = Loc.Tr("Transfer.Preparing"), Status = TransferStatus.Pending,
+            CanCancel = true,
         };
 
         Dispatcher.Invoke(() => Transfers.Add(transfer));
-        StatusText.Text = $"Sende an {target.Alias}...";
+        StatusText.Text = Loc.Tr("Main.StatusSendingTo", target.Alias);
 
         var fileSender = new FileSender(
             BuildAnnouncement(),
@@ -385,7 +454,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
                 transfer.Progress = progress;
                 transfer.SpeedText = $"{FormatBytes((long)fileSender.CurrentBytesPerSecond)}/s";
                 transfer.Status = TransferStatus.Active;
-                transfer.StatusText = "Übertragung läuft...";
+                transfer.StatusText = Loc.Tr("Transfer.Running");
             });
         };
 
@@ -396,34 +465,55 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
                 transfer.Status = status;
                 transfer.StatusText = status switch
                 {
-                    TransferStatus.Completed => "Abgeschlossen",
-                    TransferStatus.Failed => "Fehlgeschlagen",
-                    TransferStatus.Cancelled => "Abgebrochen",
+                    TransferStatus.Completed => Loc.Tr("Transfer.Completed"),
+                    TransferStatus.Failed => Loc.Tr("Transfer.Failed"),
+                    TransferStatus.Cancelled => Loc.Tr("Transfer.Cancelled"),
                     _ => transfer.StatusText,
                 };
+                transfer.CanCancel = false;
+                _sendCancels.Remove(transfer);
                 StatusText.Text = status == TransferStatus.Active
-                    ? $"Sende an {target.Alias}..."
-                    : $"Übertragung: {transfer.StatusText}";
+                    ? Loc.Tr("Main.StatusSendingTo", target.Alias)
+                    : Loc.Tr("Main.StatusTransfer", transfer.StatusText);
 
                 if (status == TransferStatus.Completed)
                     History.Insert(0, new HistoryEntry { FileName = transfer.FileName, Direction = "→", Timestamp = DateTime.Now });
             });
         };
 
+        var cts = new CancellationTokenSource();
+        transfer.CancelAction = () => cts.Cancel();
+        _sendCancels[transfer] = cts;
+
         _ = Task.Run(async () =>
         {
             try
             {
                 using (fileSender)
-                    await fileSender.SendAsync(session);
+                    await fileSender.SendAsync(session, cts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                Dispatcher.Invoke(() =>
+                {
+                    if (transfer.CanCancel)
+                    {
+                        transfer.Status = TransferStatus.Cancelled;
+                        transfer.StatusText = Loc.Tr("Transfer.Cancelled");
+                        transfer.CanCancel = false;
+                        _sendCancels.Remove(transfer);
+                    }
+                });
             }
             catch (Exception ex)
             {
                 Dispatcher.Invoke(() =>
                 {
                     transfer.Status = TransferStatus.Failed;
-                    transfer.StatusText = $"Fehler: {ex.Message}";
-                    StatusText.Text = $"Fehler bei Übertragung an {target.Alias}";
+                    transfer.StatusText = Loc.Tr("Transfer.Error", ex.Message);
+                    transfer.CanCancel = false;
+                    _sendCancels.Remove(transfer);
+                    StatusText.Text = Loc.Tr("Main.StatusSendError", target.Alias);
                 });
             }
         });
@@ -439,7 +529,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
                 return;
             }
 
-            var dialog = new ReceiveDialog(e.Sender.Alias ?? "Unbekannt", e.Files, e.Fingerprint);
+            var dialog = new ReceiveDialog(e.Sender.Alias ?? Loc.Tr("Main.DeviceUnknown"), e.Files, e.Fingerprint);
             dialog.Owner = this;
             dialog.ShowDialog();
 
@@ -460,13 +550,23 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
     {
         var transfer = new TransferViewModel
         {
-            FileName = e.Files.Count == 1 ? e.Files[0].FileName : $"{e.Files.Count} Dateien von {e.Sender.Alias}",
-            Progress = 0, SpeedText = string.Empty, StatusText = "Empfang wird vorbereitet...", Status = TransferStatus.Active,
+            FileName = e.Files.Count == 1 ? e.Files[0].FileName : Loc.Tr("Transfer.FilesFrom", e.Files.Count, e.Sender.Alias),
+            Progress = 0, SpeedText = string.Empty, StatusText = Loc.Tr("Transfer.Running"), Status = TransferStatus.Active,
+            CanCancel = true,
         };
 
         Transfers.Add(transfer);
-        StatusText.Text = $"Empfange von {e.Sender.Alias}...";
+        StatusText.Text = Loc.Tr("Main.StatusReceivingFrom", e.Sender.Alias);
         _receiveTransfers[e.SessionId] = transfer;
+
+        transfer.CancelAction = () =>
+        {
+            _server?.CancelUpload(e.SessionId);
+            transfer.Status = TransferStatus.Cancelled;
+            transfer.StatusText = Loc.Tr("Transfer.Cancelled");
+            transfer.CanCancel = false;
+            _receiveTransfers.Remove(e.SessionId);
+        };
 
         _server?.AcceptUpload(e.SessionId, _config.DefaultSavePath);
     }
@@ -479,18 +579,52 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
             {
                 transfer.Status = TransferStatus.Completed;
                 transfer.Progress = 1;
-                transfer.StatusText = "Abgeschlossen";
+                transfer.StatusText = Loc.Tr("Transfer.Completed");
+                transfer.CanCancel = false;
                 History.Insert(0, new HistoryEntry { FileName = e.FileName, Direction = "←", Timestamp = DateTime.Now });
             }
-            StatusText.Text = $"Empfangen: {e.FileName}";
+            StatusText.Text = Loc.Tr("Main.StatusReceived", e.FileName);
 
             if (!IsVisible)
             {
                 Show();
                 Activate();
-                _trayIcon?.ToolTipText = $"Datei empfangen: {e.FileName}";
+                _trayIcon?.ToolTipText = Loc.Tr("Tray.FileReceived", e.FileName);
             }
         });
+    }
+
+    private void OnUploadProgress(object? sender, UploadProgressEventArgs e)
+    {
+        Dispatcher.Invoke(() =>
+        {
+            if (_receiveTransfers.TryGetValue(e.SessionId, out var transfer))
+            {
+                if (e.TotalBytes > 0)
+                    transfer.Progress = Math.Min(1.0, (double)e.BytesReceived / e.TotalBytes);
+                transfer.SpeedText = $"{FormatBytes((long)e.BytesPerSecond)}/s";
+                transfer.StatusText = Loc.Tr("Transfer.Running");
+            }
+        });
+    }
+
+    private void OnUploadCancelled(object? sender, UploadCancelledEventArgs e)
+    {
+        Dispatcher.Invoke(() =>
+        {
+            if (_receiveTransfers.Remove(e.SessionId, out var transfer))
+            {
+                transfer.Status = TransferStatus.Cancelled;
+                transfer.StatusText = Loc.Tr("Transfer.Cancelled");
+                transfer.CanCancel = false;
+            }
+        });
+    }
+
+    private void CancelTransfer_Click(object sender, RoutedEventArgs e)
+    {
+        if (((FrameworkElement)sender).DataContext is not TransferViewModel vm) return;
+        vm.CancelAction?.Invoke();
     }
 
     private void QrButton_Click(object sender, RoutedEventArgs e)
@@ -546,6 +680,8 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         _discovery?.DeviceFound -= OnDeviceFound;
         _discovery?.DeviceLost -= OnDeviceLost;
         _server?.UploadRequested -= OnUploadRequested;
+        _server?.UploadProgress -= OnUploadProgress;
+        _server?.UploadCancelled -= OnUploadCancelled;
         _server?.UploadCompleted -= OnUploadCompleted;
         _discovery?.Stop();
         _server?.Stop();
@@ -569,7 +705,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
             if (info.UpdateAvailable)
             {
                 _pendingUpdate = info;
-                UpdateVersionText.Text = $"v{info.LatestVersion} -> Aktualisieren und Neustart";
+                UpdateVersionText.Text = Loc.Tr("Main.UpdateRestart", info.LatestVersion);
                 UpdateBanner.Visibility = Visibility.Visible;
             }
         });
@@ -579,10 +715,10 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
     {
         if (_pendingUpdate is null) return;
         UpdateButton.IsEnabled = false;
-        UpdateButton.Content = "Wird heruntergeladen...";
-        StatusText.Text = "Lade Update herunter...";
+        UpdateButton.Content = Loc.Tr("Main.UpdateDownloading");
+        StatusText.Text = Loc.Tr("Main.UpdateDownloading");
 
-        var progress = new Progress<int>(p => StatusText.Text = $"Lade Update herunter... {p}%");
+        var progress = new Progress<int>(p => StatusText.Text = Loc.Tr("Main.UpdateDownloadProgress", p));
         _ = Task.Run(async () =>
         {
             try
@@ -594,8 +730,8 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
                 Dispatcher.Invoke(() =>
                 {
                     UpdateButton.IsEnabled = true;
-                    UpdateButton.Content = "Aktualisieren";
-                    StatusText.Text = $"Update fehlgeschlagen: {ex.Message}";
+                    UpdateButton.Content = Loc.Tr("Main.UpdateButton");
+                    StatusText.Text = Loc.Tr("Main.UpdateFailed", ex.Message);
                 });
             }
         });
