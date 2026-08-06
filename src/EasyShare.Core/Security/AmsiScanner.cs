@@ -50,13 +50,13 @@ public sealed class AmsiScanner : IDisposable
                 var buffer = new byte[ChunkBytes];
 
                 if (!ScanRegion(fs, 0, headBytes, buffer, contentName, session))
-                    return AmsiScanResult.Clean;
+                    return AmsiScanResult.Detected;
 
                 if (!scanFull)
                 {
                     fs.Seek(total - tailBytes, SeekOrigin.Begin);
-                    if (!ScanRegion(fs, 0, tailBytes, buffer, contentName, session))
-                        return AmsiScanResult.Clean;
+                    if (!ScanRegion(fs, total - tailBytes, tailBytes, buffer, contentName, session))
+                        return AmsiScanResult.Detected;
                 }
 
                 return AmsiScanResult.Clean;
