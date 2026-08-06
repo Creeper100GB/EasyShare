@@ -270,7 +270,7 @@ public class LocalSendServer
                 {
                     fileSection = section;
                     fileName = disposition.FileName.Value;
-                    continue;
+                    break;
                 }
 
                 using var sr = new StreamReader(section.Body);
@@ -308,6 +308,7 @@ public class LocalSendServer
             var totalBytes = fileEntry?.Size ?? 0;
             var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted, pending.UploadCts.Token);
             bool writeSucceeded = false;
+            long lastProgressTicks = 0;
 
             try
             {
@@ -321,8 +322,11 @@ public class LocalSendServer
                         await stream.WriteAsync(buffer.AsMemory(0, read), linkedCts.Token);
                         bytesReceived += read;
 
-                        if (bytesReceived % 262144 == 0 || bytesReceived >= totalBytes)
+                        var now = System.Diagnostics.Stopwatch.GetTimestamp();
+                        var elapsedMs = (now - lastProgressTicks) * 1000 / (double)System.Diagnostics.Stopwatch.Frequency;
+                        if (elapsedMs >= 200 || bytesReceived >= totalBytes)
                         {
+                            lastProgressTicks = now;
                             UploadProgress?.Invoke(this, new UploadProgressEventArgs
                             {
                                 SessionId = sessionId,

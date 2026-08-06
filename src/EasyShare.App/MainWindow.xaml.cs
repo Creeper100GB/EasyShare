@@ -471,7 +471,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
                     _ => transfer.StatusText,
                 };
                 transfer.CanCancel = false;
-                _sendCancels.Remove(transfer);
+                RemoveSendCancel(transfer);
                 StatusText.Text = status == TransferStatus.Active
                     ? Loc.Tr("Main.StatusSendingTo", target.Alias)
                     : Loc.Tr("Main.StatusTransfer", transfer.StatusText);
@@ -501,7 +501,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
                         transfer.Status = TransferStatus.Cancelled;
                         transfer.StatusText = Loc.Tr("Transfer.Cancelled");
                         transfer.CanCancel = false;
-                        _sendCancels.Remove(transfer);
+                        RemoveSendCancel(transfer);
                     }
                 });
             }
@@ -512,7 +512,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
                     transfer.Status = TransferStatus.Failed;
                     transfer.StatusText = Loc.Tr("Transfer.Error", ex.Message);
                     transfer.CanCancel = false;
-                    _sendCancels.Remove(transfer);
+                    RemoveSendCancel(transfer);
                     StatusText.Text = Loc.Tr("Main.StatusSendError", target.Alias);
                 });
             }
@@ -537,7 +537,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
             {
                 AcceptUpload(e, dialog.TrustDevice);
                 if (dialog.TrustDevice)
-                    _trustStore?.AddTrusted(e.Fingerprint, e.Sender.Alias ?? "Unbekannt");
+                    _trustStore?.AddTrusted(e.Fingerprint, e.Sender.Alias ?? Loc.Tr("Main.DeviceUnknown"));
             }
             else
             {
@@ -625,6 +625,12 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
     {
         if (((FrameworkElement)sender).DataContext is not TransferViewModel vm) return;
         vm.CancelAction?.Invoke();
+    }
+
+    private void RemoveSendCancel(TransferViewModel transfer)
+    {
+        if (_sendCancels.Remove(transfer, out var cts))
+            cts.Dispose();
     }
 
     private void QrButton_Click(object sender, RoutedEventArgs e)

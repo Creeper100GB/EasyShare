@@ -19,6 +19,33 @@
 
     <BooleanToVisibilityConverter x:Key="BoolToVis"/>
 
+    <Style x:Key="VibrantProgressBar" TargetType="ProgressBar">
+      <Setter Property="Height" Value="18"/>
+      <Setter Property="Minimum" Value="0"/>
+      <Setter Property="Maximum" Value="1"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="ProgressBar">
+            <Grid ClipToBounds="True">
+              <Border CornerRadius="9" Background="#2a2a2a"/>
+              <Border x:Name="PART_Indicator" CornerRadius="9"
+                      HorizontalAlignment="Left" ClipToBounds="True">
+                <Border.Background>
+                  <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+                    <GradientStop Color="#6366f1" Offset="0.0"/>
+                    <GradientStop Color="#a855f7" Offset="0.25"/>
+                    <GradientStop Color="#ec4899" Offset="0.5"/>
+                    <GradientStop Color="#f97316" Offset="0.75"/>
+                    <GradientStop Color="#fbbf24" Offset="1.0"/>
+                  </LinearGradientBrush>
+                </Border.Background>
+              </Border>
+            </Grid>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
     <DataTemplate x:Key="DeviceTemplate">
       <Border x:Name="DeviceCard" CornerRadius="6" Padding="10,8" Margin="0,0,0,4"
               Cursor="Hand" MouseLeftButtonUp="DeviceCard_Click">
@@ -53,7 +80,7 @@
     </DataTemplate>
 
     <DataTemplate x:Key="TransferTemplate">
-      <Border Background="#1e1e1e" CornerRadius="6" Padding="10,8" Margin="0,0,0,4"
+      <Border Background="#1e1e1e" CornerRadius="6" Padding="12,10" Margin="0,0,0,6"
               BorderBrush="#333333" BorderThickness="1">
         <Grid>
           <Grid.ColumnDefinitions>
@@ -62,18 +89,19 @@
           </Grid.ColumnDefinitions>
           <StackPanel Grid.Column="0">
             <TextBlock Text="{Binding FileName}" FontSize="12" FontWeight="Medium"
-                       TextTrimming="CharacterEllipsis"/>
-            <ProgressBar Value="{Binding Progress}" Height="18" Margin="0,4,0,2"
-                         Minimum="0" Maximum="1" SmallChange="0.01" LargeChange="0.1"
-                         Foreground="#4ade80"/>
+                       TextTrimming="CharacterEllipsis" Margin="0,0,0,6"/>
+            <ProgressBar Value="{Binding Progress}" Style="{StaticResource VibrantProgressBar}"
+                         Margin="0,0,0,4"/>
             <StackPanel Orientation="Horizontal">
-              <TextBlock Text="{Binding SpeedText}" FontSize="11" Foreground="Gray" Margin="0,0,8,0"/>
+              <TextBlock Text="{Binding Progress, StringFormat=\{0:P0\}}" FontSize="11" 
+                         FontWeight="SemiBold" Foreground="#a855f7" Margin="0,0,10,0"/>
+              <TextBlock Text="{Binding SpeedText}" FontSize="11" Foreground="Gray" Margin="0,0,10,0"/>
               <TextBlock Text="{Binding StatusText}" FontSize="11"
                          Foreground="{Binding Status, Converter={StaticResource StatusToColor}}"/>
             </StackPanel>
           </StackPanel>
           <Button Grid.Column="1" Content="{Binding [Transfer.Cancel], Source={x:Static loc:Loc.Instance}}"
-                  FontSize="11" Padding="8,3" Margin="8,0,0,0" VerticalAlignment="Center"
+                  FontSize="11" Padding="10,4" Margin="10,0,0,0" VerticalAlignment="Center"
                   Visibility="{Binding CanCancel, Converter={StaticResource BoolToVis}}"
                   Click="CancelTransfer_Click"/>
         </Grid>
@@ -165,14 +193,15 @@
         </Grid.RowDefinitions>
 
         <Border Grid.Row="0" x:Name="DropZone"
-                BorderBrush="#555555" BorderThickness="2" CornerRadius="8"
-                Background="#1e1e1e" Padding="32"
-                AllowDrop="True" Drop="DropZone_Drop" Margin="4">
+                BorderBrush="#444444" BorderThickness="2" CornerRadius="12"
+                Background="#161616" Padding="32"
+                AllowDrop="True" Drop="DropZone_Drop" DragOver="DropZone_DragOver" Margin="4">
           <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+            <TextBlock Text="&#x1F4E4;" FontSize="48" HorizontalAlignment="Center" Margin="0,0,0,12"/>
             <TextBlock Text="{Binding [Main.DropZone], Source={x:Static loc:Loc.Instance}}" FontSize="20" FontWeight="SemiBold"
-                       Foreground="Gray" HorizontalAlignment="Center"/>
+                       Foreground="#aaaaaa" HorizontalAlignment="Center"/>
             <TextBlock Text="{Binding [Main.DropZoneHint], Source={x:Static loc:Loc.Instance}}" FontSize="12"
-                       Foreground="LightGray" HorizontalAlignment="Center" Margin="0,4,0,0"/>
+                       Foreground="#666666" HorizontalAlignment="Center" Margin="0,6,0,0"/>
           </StackPanel>
         </Border>
 

@@ -20,6 +20,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\EasyShare.Core\EasyShare.Core.csproj" />
+    <ProjectReference Include="..\..\src\EasyShare.Transport\EasyShare.Transport.csproj" />
   </ItemGroup>
 
 </Project>

@@ -22,6 +22,7 @@ public class FileSender : IDisposable
     private long _bytesSent;
     private long _lastSpeedBytes;
     private long _lastSpeedTimestamp;
+    private long _lastProgressTicks;
 
     public double CurrentBytesPerSecond { get; private set; }
 
@@ -147,8 +148,12 @@ public class FileSender : IDisposable
             _lastSpeedTimestamp = now;
         }
 
-        if (_totalBytes > 0)
+        var progressElapsedMs = (now - _lastProgressTicks) * 1000 / (double)Stopwatch.Frequency;
+        if (_totalBytes > 0 && progressElapsedMs >= 200)
+        {
+            _lastProgressTicks = now;
             ProgressChanged?.Invoke(this, Math.Min(1.0, (double)_bytesSent / _totalBytes));
+        }
     }
 
     public void Dispose()
