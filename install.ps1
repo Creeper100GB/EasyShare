@@ -13,8 +13,13 @@ if (Test-Path $exe) {
 }
 
 # Neuestes Release auflösen (ohne GitHub API → kein Rate-Limit)
-$redirect = Invoke-WebRequest "https://github.com/$repo/releases/latest" -MaximumRedirection 0 -ErrorAction Stop
-$tag = $redirect.Headers.Location -replace '.*/tag/', ''
+# Hinweis: -MaximumRedirection 0 wirft in PowerShell 5.1 eine Exception,
+# daher HttpWebRequest mit deaktiviertem AutoRedirect verwenden.
+$req = [System.Net.HttpWebRequest]::Create("https://github.com/$repo/releases/latest")
+$req.AllowAutoRedirect = $false
+$req.UserAgent = 'EasyShare-Installer'
+$resp = $req.GetResponse()
+$tag = [System.Uri]::new($resp.Headers['Location']).Segments[-1].TrimEnd('/')
 $version = $tag.TrimStart('v')
 $zipName = "EasyShare-$version-win-x64.zip"
 $downloadUrl = "https://github.com/$repo/releases/download/$tag/$zipName"
