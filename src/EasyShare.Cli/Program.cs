@@ -25,9 +25,8 @@ static class Program
         };
     }
 
-    static async Task<int> HandleShare(string[] args)
+    static async Task<int> HandleShare(string[] paths)
     {
-        var targetDevice = ParseTargetFlag(args, out var paths);
         if (paths.Length == 0)
         {
             await Console.Error.WriteLineAsync("Keine Dateien angegeben.");
@@ -82,26 +81,6 @@ static class Program
         }
     }
 
-    static string ParseTargetFlag(string[] args, out string[] remainingPaths)
-    {
-        var list = new List<string>(args);
-        string? target = null;
-
-        for (var i = 0; i < list.Count; i++)
-        {
-            if (list[i] == "--to" && i + 1 < list.Count)
-            {
-                target = list[i + 1];
-                list.RemoveAt(i + 1);
-                list.RemoveAt(i);
-                i--;
-            }
-        }
-
-        remainingPaths = [.. list];
-        return target ?? string.Empty;
-    }
-
     static string GetAppExePath()
     {
         var dir = AppContext.BaseDirectory;
@@ -142,7 +121,7 @@ static class Program
     static int PrintUsage()
     {
         Console.Error.WriteLine("EasyShare CLI");
-        Console.Error.WriteLine("  easyshare share <Dateien...> [--to <Ger\u00e4t>]");
+        Console.Error.WriteLine("  easyshare share <Dateien...>");
         Console.Error.WriteLine("  easyshare install");
         Console.Error.WriteLine("  easyshare uninstall");
         return 1;

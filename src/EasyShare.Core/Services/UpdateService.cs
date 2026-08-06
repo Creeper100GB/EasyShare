@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.IO.Compression;
+using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -42,15 +43,15 @@ public class UpdateService
 
         try
         {
-            var args = "api repos/" + RepoOwner + "/" + RepoName + "/releases/latest";
-            var json = await RunGhAsync(args, ct);
+            using var httpClient = new HttpClient();
+            httpClient.DefaultRequestHeaders.UserAgent.ParseAdd("EasyShare");
+            httpClient.Timeout = TimeSpan.FromSeconds(15);
 
-            if (string.IsNullOrEmpty(json))
-            {
-                UpdateCheckCompleted?.Invoke(info);
-                return;
-            }
+            var url = $"https://api.github.com/repos/{RepoOwner}/{RepoName}/releases/latest";
+            using var response = await httpClient.GetAsync(url, ct);
+            response.EnsureSuccessStatusCode();
 
+            var json = await response.Content.ReadAsStringAsync(ct);
             using var doc = JsonDocument.Parse(json);
             var root = doc.RootElement;
 
@@ -237,23 +238,4 @@ public class UpdateService
         return vA.CompareTo(vB);
     }
 
-    private static async Task<string> RunGhAsync(string args, CancellationToken ct = default)
-    {
-        using var process = new Process
-        {
-            StartInfo = new ProcessStartInfo
-            {
-                FileName = "gh",
-                Arguments = args,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true,
-            },
-        };
-        process.Start();
-        var output = await process.StandardOutput.ReadToEndAsync(ct);
-        await process.WaitForExitAsync(ct);
-        return output.Trim();
-    }
 }
