@@ -78,6 +78,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
 
         LoadConfig();
         Loc.Instance.Language = _config.Language;
+        RestoreWindowBounds();
         InitializeServices();
         SetupTrayIcon();
         StartServices();
@@ -122,6 +123,29 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
             }
         }
         catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[EasyShare] LoadConfig failed: {ex.Message}"); _config = new AppConfig(); }
+    }
+
+    private void RestoreWindowBounds()
+    {
+        var x = _config.WindowX;
+        var y = _config.WindowY;
+        var w = _config.WindowWidth;
+        var h = _config.WindowHeight;
+        if (double.IsNaN(x) || double.IsNaN(y) || double.IsNaN(w) || double.IsNaN(h)) return;
+        if (w < 400 || h < 300) return;
+
+        var vLeft = SystemParameters.VirtualScreenLeft;
+        var vTop = SystemParameters.VirtualScreenTop;
+        var vWidth = SystemParameters.VirtualScreenWidth;
+        var vHeight = SystemParameters.VirtualScreenHeight;
+        var visible = !(x > vLeft + vWidth - 100 || y > vTop + vHeight - 40 || x + w < vLeft + 100 || y + h < vTop + 40);
+        if (!visible) return;
+
+        WindowStartupLocation = WindowStartupLocation.Manual;
+        Left = x;
+        Top = y;
+        Width = w;
+        Height = h;
     }
 
     private void SaveConfig()
@@ -734,7 +758,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
                 try
                 {
                     var extractDir = Path.Combine(Path.GetDirectoryName(e.SavePath)!, Path.GetFileNameWithoutExtension(e.SavePath));
-                    ZipFile.ExtractToDirectory(e.SavePath, extractDir);
+                    ExtractZipSafely(e.SavePath, extractDir);
                     File.Delete(e.SavePath);
                     History.Insert(0, new HistoryEntry { FileName = Loc.Tr("Transfer.ExtractedFiles", e.OriginalFileCount, Path.GetFileName(extractDir)), Direction = "←", Timestamp = DateTime.Now });
                 }
@@ -749,6 +773,28 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
                 History.Insert(0, new HistoryEntry { FileName = e.FileName, Direction = "←", Timestamp = DateTime.Now });
             }
         });
+    }
+
+    private static void ExtractZipSafely(string zipPath, string extractDir)
+    {
+        var extractRoot = Path.GetFullPath(extractDir);
+        Directory.CreateDirectory(extractRoot);
+        using var archive = ZipFile.OpenRead(zipPath);
+        foreach (var entry in archive.Entries)
+        {
+            var target = Path.GetFullPath(Path.Combine(extractRoot, entry.FullName));
+            if (!target.StartsWith(extractRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidDataException($"Unsicherer Archivpfad: {entry.FullName}");
+
+            if (string.IsNullOrEmpty(entry.Name))
+            {
+                Directory.CreateDirectory(target);
+                continue;
+            }
+
+            Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+            entry.ExtractToFile(target, true);
+        }
     }
 
     private static void QuarantineFile(string filePath)
@@ -857,6 +903,15 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
     public void Cleanup()
     {
         _isCleanedUp = true;
+        try
+        {
+            _config.WindowX = Left;
+            _config.WindowY = Top;
+            _config.WindowWidth = Width;
+            _config.WindowHeight = Height;
+            SaveConfig();
+        }
+        catch { }
         _trayIcon?.Dispose();
         _trayIcon = null;
         _discovery?.DeviceFound -= OnDeviceFound;

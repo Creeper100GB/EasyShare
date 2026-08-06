@@ -14,11 +14,13 @@ public class MulticastDiscovery : IDisposable
     private readonly int _port;
     private UdpClient? _client;
     private CancellationTokenSource? _cts;
-    private readonly ConcurrentDictionary<string, DateTime> _knownDevices = new();
+    private readonly ConcurrentDictionary<string, KnownDevice> _knownDevices = new();
     private Timer? _cleanupTimer;
     private Timer? _announceTimer;
     private DeviceAnnouncement? _self;
     private List<IPAddress> _localAddresses = new();
+
+    private readonly record struct KnownDevice(DateTime LastSeen, string Signature);
 
     public event EventHandler<DeviceInfo>? DeviceFound;
     public event EventHandler<string>? DeviceLost;
@@ -135,7 +137,18 @@ public class MulticastDiscovery : IDisposable
                 if (_self is not null && string.Equals(announcement.Fingerprint, _self.Fingerprint, StringComparison.OrdinalIgnoreCase))
                     continue;
 
-                _knownDevices[announcement.Fingerprint] = DateTime.UtcNow;
+                var now = DateTime.UtcNow;
+                var signature = $"{announcement.Alias}|{announcement.Port}|{announcement.Version}|{announcement.DeviceModel}|{announcement.DeviceType}|{announcement.Protocol}|{announcement.Download}|{result.RemoteEndPoint.Address}";
+                if (_knownDevices.TryGetValue(announcement.Fingerprint, out var existing))
+                {
+                    if (existing.Signature == signature)
+                    {
+                        _knownDevices[announcement.Fingerprint] = existing with { LastSeen = now };
+                        continue;
+                    }
+                }
+
+                _knownDevices[announcement.Fingerprint] = new KnownDevice(now, signature);
 
                 DeviceFound?.Invoke(this, new DeviceInfo
                 {
@@ -148,7 +161,7 @@ public class MulticastDiscovery : IDisposable
                     Protocol = announcement.Protocol,
                     Download = announcement.Download,
                     IpAddress = result.RemoteEndPoint.Address.ToString(),
-                    LastSeen = DateTime.UtcNow,
+                    LastSeen = now,
                 });
             }
             catch (OperationCanceledException)
@@ -165,7 +178,7 @@ public class MulticastDiscovery : IDisposable
     {
         var cutoff = DateTime.UtcNow.AddSeconds(-60);
         var stale = _knownDevices
-            .Where(kv => kv.Value < cutoff)
+            .Where(kv => kv.Value.LastSeen < cutoff)
             .Select(kv => kv.Key)
             .ToList();
 

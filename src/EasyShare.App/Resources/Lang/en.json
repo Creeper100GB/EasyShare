@@ -59,8 +59,6 @@
   "Settings.TransferHeader": "Transfer",
   "Settings.SavePath": "Save location for received files",
   "Settings.AutoAccept": "Auto-accept files from trusted devices",
-  "Settings.SpeedLimit": "Speed limit",
-  "Settings.Unlimited": "Unlimited",
   "Settings.AppearanceHeader": "Appearance",
   "Settings.Theme": "Theme",
   "Settings.ThemeLight": "Light",
@@ -97,5 +95,9 @@
   "Main.EmptyHistory": "No history",
   "Settings.PortInvalid": "Port must be between 1 and 65535",
   "Tray.ReceivedTitle": "EasyShare",
-  "Tray.Received": "File received: {0}"
+  "Tray.Received": "File received: {0}",
+  "App.CrashTitle": "EasyShare - Unexpected error",
+  "App.CrashIntro": "An unexpected error occurred in EasyShare. Please report this incident including the following details:",
+  "App.CrashCopy": "Copy",
+  "App.CrashClose": "Close"
 }

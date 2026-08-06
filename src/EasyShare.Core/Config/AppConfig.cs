@@ -39,6 +39,15 @@ public class AppConfig
     [JsonPropertyName("language")]
     public string Language { get; set; } = "de";
 
-    [JsonPropertyName("speedLimitBytesPerSecond")]
-    public int SpeedLimitBytesPerSecond { get; set; }
+    [JsonPropertyName("windowX")]
+    public double WindowX { get; set; } = double.NaN;
+
+    [JsonPropertyName("windowY")]
+    public double WindowY { get; set; } = double.NaN;
+
+    [JsonPropertyName("windowWidth")]
+    public double WindowWidth { get; set; } = double.NaN;
+
+    [JsonPropertyName("windowHeight")]
+    public double WindowHeight { get; set; } = double.NaN;
 }

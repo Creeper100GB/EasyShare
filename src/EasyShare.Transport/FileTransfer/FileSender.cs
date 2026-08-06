@@ -87,7 +87,7 @@ public class FileSender : IDisposable
     public async Task SendAsync(TransferSession session, CancellationToken ct = default, bool compress = false)
     {
         StatusChanged?.Invoke(this, TransferStatus.Active);
-        _totalBytes = session.Files.Sum(f => f.Size);
+        session.Files = session.Files.ToList();
         _bytesSent = 0;
         _lastSpeedBytes = 0;
         _lastSpeedTimestamp = Stopwatch.GetTimestamp();
@@ -111,6 +111,8 @@ public class FileSender : IDisposable
                     LocalFilePath = tempZipPath,
                 }};
             }
+
+            _totalBytes = session.Files.Sum(f => f.Size);
 
             var prepare = await PrepareUploadAsync(baseUrl, session, ct, compressed, originalFileCount);
             if (prepare is null || prepare.Files.Count == 0)

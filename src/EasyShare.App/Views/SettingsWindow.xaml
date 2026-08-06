@@ -40,16 +40,6 @@
             <Button Grid.Column="1" Content="..." Padding="8,0" Click="BrowseSavePath_Click"/>
           </Grid>
           <CheckBox x:Name="AutoAcceptCheckBox" Content="{Binding [Settings.AutoAccept], Source={x:Static loc:Loc.Instance}}" Margin="0,0,0,12"/>
-          <TextBlock Text="{Binding [Settings.SpeedLimit], Source={x:Static loc:Loc.Instance}}" FontSize="12" Foreground="Gray" Margin="0,8,0,4"/>
-          <Grid Margin="0,0,0,12">
-            <Grid.ColumnDefinitions>
-              <ColumnDefinition Width="*"/>
-              <ColumnDefinition Width="Auto"/>
-            </Grid.ColumnDefinitions>
-            <Slider x:Name="SpeedLimitSlider" Grid.Column="0" Minimum="0" Maximum="100" Value="0"
-                    TickFrequency="10" IsSnapToTickEnabled="True" ValueChanged="SpeedLimitSlider_ValueChanged"/>
-            <TextBlock x:Name="SpeedLimitText" Grid.Column="1" VerticalAlignment="Center" Margin="8,0,0,0" FontSize="12"/>
-          </Grid>
         </StackPanel>
 
         <Separator/>

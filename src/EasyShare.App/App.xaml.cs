@@ -39,6 +39,14 @@ public partial class App : Application
         DispatcherUnhandledException += (s, ex) =>
         {
             System.Console.Error.WriteLine($"[EasyShare] Unbehandelte Ausnahme: {ex.Exception}");
+            try
+            {
+                var dialog = new Views.CrashDialog(ex.Exception);
+                dialog.ShowDialog();
+            }
+            catch
+            {
+            }
             ex.Handled = true;
         };
 

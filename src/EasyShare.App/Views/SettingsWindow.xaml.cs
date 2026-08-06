@@ -23,8 +23,6 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
         SavePathTextBox.Text = _config.DefaultSavePath;
         AutoAcceptCheckBox.IsChecked = _config.AutoAcceptTrusted;
         AutoStartCheckBox.IsChecked = _config.AutoStart;
-        SpeedLimitSlider.Value = _config.SpeedLimitBytesPerSecond == 0 ? 0 : _config.SpeedLimitBytesPerSecond / 1_000_000.0;
-        SpeedLimitText.Text = SpeedLimitSlider.Value == 0 ? Loc.Tr("Settings.Unlimited") : $"{SpeedLimitSlider.Value:F0} MB/s";
 
         var themeIndex = _config.Theme switch
         {
@@ -68,11 +66,6 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
     }
 
     private bool IsPortValid => int.TryParse(PortBox.Text, out var port) && port is >= 1 and <= 65535;
-
-    private void SpeedLimitSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
-    {
-        SpeedLimitText.Text = e.NewValue == 0 ? Loc.Tr("Settings.Unlimited") : $"{e.NewValue:F0} MB/s";
-    }
 
     private void ThemeComboBox_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
     {
@@ -133,9 +126,6 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
         _config.DefaultSavePath = SavePathTextBox.Text;
         _config.AutoAcceptTrusted = AutoAcceptCheckBox.IsChecked == true;
         _config.AutoStart = AutoStartCheckBox.IsChecked == true;
-
-        var speedLimit = SpeedLimitSlider.Value;
-        _config.SpeedLimitBytesPerSecond = speedLimit == 0 ? 0 : (int)(speedLimit * 1_000_000);
 
         SetAutoStart(_config.AutoStart);
 

@@ -1,17 +1,40 @@
+using System.Diagnostics;
 using System.IO.Pipes;
+using System.Security.AccessControl;
+using System.Security.Principal;
 
 namespace EasyShare.Shell;
 
 public static class NamedPipeServer
 {
-    private const string PipeName = @"EasyShareIPC";
+    private static string PipeName => $"EasyShareIPC_{Process.GetCurrentProcess().SessionId}";
+
+    private static PipeSecurity CreatePipeSecurity()
+    {
+        var pipeSecurity = new PipeSecurity();
+        pipeSecurity.AddAccessRule(new PipeAccessRule(
+            new SecurityIdentifier(WellKnownSidType.WorldSid, null),
+            PipeAccessRights.ReadWrite,
+            AccessControlType.Deny));
+        pipeSecurity.AddAccessRule(new PipeAccessRule(
+            WindowsIdentity.GetCurrent().Name,
+            PipeAccessRights.FullControl,
+            AccessControlType.Allow));
+        pipeSecurity.AddAccessRule(new PipeAccessRule(
+            "SYSTEM",
+            PipeAccessRights.FullControl,
+            AccessControlType.Allow));
+        return pipeSecurity;
+    }
 
     public static async Task StartServerAsync(Action<string[]> onFilesReceived, CancellationToken ct)
     {
         while (!ct.IsCancellationRequested)
         {
-            using var server = new NamedPipeServerStream(PipeName, PipeDirection.In, -1,
-                PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
+            using var server = NamedPipeServerStreamAcl.Create(
+                PipeName, PipeDirection.In, -1,
+                PipeTransmissionMode.Byte, PipeOptions.Asynchronous, 0, 0,
+                CreatePipeSecurity(), HandleInheritability.None, PipeAccessRights.ReadData);
 
             await server.WaitForConnectionAsync(ct);
 

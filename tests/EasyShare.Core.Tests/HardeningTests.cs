@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using EasyShare.Core.Security;
 using EasyShare.Core.Services;
 using EasyShare.Transport.Server;
 
@@ -90,6 +91,60 @@ public class HardeningTests
         finally
         {
             Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void TrustStore_IgnoresFingerprintCase()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "EasyShareTest", Guid.NewGuid().ToString("N"), "trusted.json");
+        try
+        {
+            var store = new TrustStore(path);
+            store.AddTrusted("AB12CD34", "alias");
+            var reloaded = new TrustStore(path);
+            Assert.True(reloaded.IsTrusted("ab12cd34"));
+            Assert.Equal("alias", reloaded.GetAlias("AB12CD34"));
+        }
+        finally
+        {
+            if (File.Exists(path)) File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void TrustStore_LoadsLegacyArrayFormat()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "EasyShareTest", Guid.NewGuid().ToString("N"), "trusted.json");
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllText(path, "[\"FINGERPRINT-ONE\"]");
+            var store = new TrustStore(path);
+            Assert.True(store.IsTrusted("fingerprint-one"));
+            var reloaded = new TrustStore(path);
+            Assert.True(reloaded.IsTrusted("fingerprint-one"));
+        }
+        finally
+        {
+            if (File.Exists(path)) File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void TrustStore_RemovesTrusted()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "EasyShareTest", Guid.NewGuid().ToString("N"), "trusted.json");
+        try
+        {
+            var store = new TrustStore(path);
+            store.AddTrusted("FP", "alias");
+            store.RemoveTrusted("fp");
+            Assert.False(store.IsTrusted("FP"));
+        }
+        finally
+        {
+            if (File.Exists(path)) File.Delete(path);
         }
     }
 }
