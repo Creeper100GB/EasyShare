@@ -1,5 +1,6 @@
 using System.IO;
 using System.IO.Compression;
+using System.Runtime.Versioning;
 using System.Text;
 using EasyShare.Core.Models;
 using EasyShare.Core.Security;
@@ -11,6 +12,7 @@ namespace EasyShare.Core.Tests;
 public class MultipartStreamingTests
 {
     [Fact]
+    [SupportedOSPlatform("windows")]
     public void AmsiScanner_NonExistentFile_ReturnsError()
     {
         var scanner = new AmsiScanner();
@@ -140,9 +142,7 @@ public class MultipartStreamingTests
         Assert.NotNull(fileSection);
         using var outStream = new MemoryStream();
         await fileSection!.Body.CopyToAsync(outStream);
-        var received = outStream.ToArray();
-
-        Assert.Equal(0, received.Length);
+        Assert.Empty(outStream.ToArray());
     }
 
     private static byte[] BuildMultipartBody(string boundary, string sessionId, string fileId, string token, byte[] fileData, string fileName)

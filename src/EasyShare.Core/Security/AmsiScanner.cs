@@ -11,6 +11,7 @@ public enum AmsiScanResult
     Unavailable,
 }
 
+[SupportedOSPlatform("windows")]
 public sealed class AmsiScanner : IDisposable
 {
     private const uint AmsiResultDetected = 0x8000;

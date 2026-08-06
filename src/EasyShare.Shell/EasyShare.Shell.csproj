@@ -5,7 +5,7 @@
   </ItemGroup>
 
   <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
+    <TargetFramework>net10.0-windows</TargetFramework>
     <TargetPlatform>windows</TargetPlatform>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
