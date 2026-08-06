@@ -80,6 +80,8 @@
   "Qr.ScanHint": "Scannen Sie den QR-Code mit einem anderen Gerät",
   "Qr.ModeActive": "Empfangsmodus aktiv",
   "Qr.OpenUrl": "Öffnen Sie die URL im Browser um Dateien zu senden",
+  "Qr.Open": "Im Browser öffnen",
+  "Qr.Copy": "URL kopieren",
   "Receive.Title": "Eingehende Übertragung",
   "Receive.SenderWants": "{0} möchte {1} Datei(en) senden:",
   "Receive.Total": "Gesamt: {0}",
@@ -89,5 +91,11 @@
   "Shell.ShareMenu": "Mit EasyShare teilen",
   "Shell.MenuRegistered": "Explorer-Kontextmenü registriert",
   "Shell.MenuRemoved": "Explorer-Kontextmenü entfernt",
-  "App.AlreadyRunning": "EasyShare läuft bereits."
+  "App.AlreadyRunning": "EasyShare läuft bereits.",
+  "Main.EmptyDevices": "Keine Geräte",
+  "Main.EmptyTransfers": "Keine Übertragungen",
+  "Main.EmptyHistory": "Kein Verlauf",
+  "Settings.PortInvalid": "Port muss zwischen 1 und 65535 liegen",
+  "Tray.ReceivedTitle": "EasyShare",
+  "Tray.Received": "Datei empfangen: {0}"
 }

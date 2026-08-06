@@ -32,6 +32,10 @@ namespace EasyShare.App;
 
 public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
 {
+    public static readonly System.Windows.Input.RoutedCommand OpenFilesCommand = new();
+    public static readonly System.Windows.Input.RoutedCommand SettingsCommand = new();
+    public static readonly System.Windows.Input.RoutedCommand QuitCommand = new();
+    public static readonly System.Windows.Input.RoutedCommand DeselectCommand = new();
     private MulticastDiscovery? _discovery;
     private LocalSendServer? _server;
     private TrustStore? _trustStore;
@@ -67,6 +71,10 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         DeviceList.ItemsSource = Devices;
         TransferList.ItemsSource = Transfers;
         HistoryList.ItemsSource = History;
+
+        Devices.CollectionChanged += (_, _) => DevicesEmptyText.Visibility = Devices.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        Transfers.CollectionChanged += (_, _) => TransfersEmptyText.Visibility = Transfers.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        History.CollectionChanged += (_, _) => HistoryEmptyText.Visibility = History.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
 
         LoadConfig();
         Loc.Instance.Language = _config.Language;
@@ -434,8 +442,20 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         { e.Effects = DragDropEffects.None; }
     }
 
+    private void DropZone_DragEnter(object sender, DragEventArgs e)
+    {
+        if (!e.Data.GetDataPresent(DataFormats.FileDrop)) return;
+        DropZoneHighlight.Visibility = Visibility.Visible;
+    }
+
+    private void DropZone_DragLeave(object sender, DragEventArgs e)
+    {
+        DropZoneHighlight.Visibility = Visibility.Collapsed;
+    }
+
     private void DropZone_Drop(object sender, DragEventArgs e)
     {
+        DropZoneHighlight.Visibility = Visibility.Collapsed;
         if (e.Data.GetData(DataFormats.FileDrop) is string[] files && files.Length > 0)
         {
             if (_selectedDevice is null)
@@ -454,6 +474,21 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         if (dialog.ShowDialog() == true)
             SendFiles(dialog.FileNames, _selectedDevice);
     }
+
+    private void OpenFilesCommand_Executed(object sender, System.Windows.Input.ExecutedRoutedEventArgs e)
+        => SelectFilesButton_Click(sender, e);
+
+    private void SettingsCommand_Executed(object sender, System.Windows.Input.ExecutedRoutedEventArgs e)
+        => SettingsButton_Click(sender, e);
+
+    private void QuitCommand_Executed(object sender, System.Windows.Input.ExecutedRoutedEventArgs e)
+    {
+        _isCleanedUp = true;
+        Application.Current.Shutdown();
+    }
+
+    private void DeselectCommand_Executed(object sender, System.Windows.Input.ExecutedRoutedEventArgs e)
+        => DeselectButton_Click(sender, e);
 
     private void SendFiles(string[] filePaths, DeviceViewModel target)
     {
@@ -692,6 +727,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
                 transfer.StatusText = Loc.Tr("Transfer.Completed");
             }
             StatusText.Text = Loc.Tr("Main.StatusReceived", e.FileName);
+            _trayIcon?.ShowNotification(Loc.Tr("Tray.ReceivedTitle"), Loc.Tr("Tray.Received", e.FileName), H.NotifyIcon.Core.NotificationIcon.Info);
 
             if (e.Compressed && File.Exists(e.SavePath) && Path.GetExtension(e.SavePath).Equals(".zip", StringComparison.OrdinalIgnoreCase))
             {

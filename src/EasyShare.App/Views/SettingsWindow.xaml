@@ -22,7 +22,8 @@
           <TextBlock Text="{Binding [Settings.DeviceName], Source={x:Static loc:Loc.Instance}}" FontSize="12" Foreground="Gray"/>
           <TextBox x:Name="AliasTextBox" Margin="0,4,0,12"/>
           <TextBlock Text="{Binding [Settings.Port], Source={x:Static loc:Loc.Instance}}" FontSize="12" Foreground="Gray"/>
-          <TextBox x:Name="PortBox" Text="53317" Margin="0,4,0,12"/>
+          <TextBox x:Name="PortBox" Text="53317" Margin="0,4,0,12"
+                   PreviewTextInput="PortBox_PreviewTextInput" TextChanged="PortBox_TextChanged"/>
         </StackPanel>
 
         <Separator/>

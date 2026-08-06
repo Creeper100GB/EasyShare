@@ -48,10 +48,26 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
 
     private void BrowseSavePath_Click(object sender, RoutedEventArgs e)
     {
-        var dialog = new SaveFileDialog { Filter = "Alle Dateien|*.*", Title = Loc.Tr("Settings.SavePath") };
-        if (dialog.ShowDialog() == true && !string.IsNullOrEmpty(dialog.FileName))
-            SavePathTextBox.Text = Path.GetDirectoryName(dialog.FileName) ?? dialog.FileName;
+        var dialog = new OpenFolderDialog { Title = Loc.Tr("Settings.SavePath") };
+        if (dialog.ShowDialog() == true && !string.IsNullOrEmpty(dialog.FolderName))
+            SavePathTextBox.Text = dialog.FolderName;
     }
+
+    private void PortBox_PreviewTextInput(object sender, System.Windows.Input.TextCompositionEventArgs e)
+    {
+        e.Handled = !e.Text.All(char.IsDigit);
+    }
+
+    private void PortBox_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e)
+    {
+        var valid = int.TryParse(PortBox.Text, out var port) && port is >= 1 and <= 65535;
+        PortBox.BorderBrush = valid
+            ? System.Windows.Media.Brushes.Transparent
+            : (System.Windows.Media.Brush)System.Windows.Application.Current.TryFindResource("ErrorColor") ?? System.Windows.Media.Brushes.Red;
+        PortBox.ToolTip = valid ? null : Loc.Tr("Settings.PortInvalid");
+    }
+
+    private bool IsPortValid => int.TryParse(PortBox.Text, out var port) && port is >= 1 and <= 65535;
 
     private void SpeedLimitSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
     {
@@ -112,7 +128,8 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
     private void CloseButton_Click(object sender, RoutedEventArgs e)
     {
         _config.DeviceAlias = AliasTextBox.Text;
-        _config.HttpPort = int.TryParse(PortBox.Text, out var port) ? port : 53317;
+        if (IsPortValid)
+            _config.HttpPort = int.Parse(PortBox.Text);
         _config.DefaultSavePath = SavePathTextBox.Text;
         _config.AutoAcceptTrusted = AutoAcceptCheckBox.IsChecked == true;
         _config.AutoStart = AutoStartCheckBox.IsChecked == true;

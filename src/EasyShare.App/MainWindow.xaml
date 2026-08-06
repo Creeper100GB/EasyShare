@@ -5,6 +5,7 @@
   xmlns:converters="clr-namespace:EasyShare.App.Converters"
   xmlns:views="clr-namespace:EasyShare.App.Views"
   xmlns:loc="clr-namespace:EasyShare.App.Localization"
+  xmlns:local="clr-namespace:EasyShare.App"
   xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
   Title="{Binding [App.Title], Source={x:Static loc:Loc.Instance}}"
   Width="920" Height="660"
@@ -12,6 +13,20 @@
   ExtendsContentIntoTitleBar="True"
   WindowBackdropType="Mica"
   Closing="Window_Closing">
+
+  <wpfui:FluentWindow.CommandBindings>
+    <CommandBinding Command="{x:Static local:MainWindow.OpenFilesCommand}" Executed="OpenFilesCommand_Executed"/>
+    <CommandBinding Command="{x:Static local:MainWindow.SettingsCommand}" Executed="SettingsCommand_Executed"/>
+    <CommandBinding Command="{x:Static local:MainWindow.QuitCommand}" Executed="QuitCommand_Executed"/>
+    <CommandBinding Command="{x:Static local:MainWindow.DeselectCommand}" Executed="DeselectCommand_Executed"/>
+  </wpfui:FluentWindow.CommandBindings>
+
+  <wpfui:FluentWindow.InputBindings>
+    <KeyBinding Command="{x:Static local:MainWindow.OpenFilesCommand}" Key="O" Modifiers="Control"/>
+    <KeyBinding Command="{x:Static local:MainWindow.SettingsCommand}" Key="OemComma" Modifiers="Control"/>
+    <KeyBinding Command="{x:Static local:MainWindow.QuitCommand}" Key="Q" Modifiers="Control"/>
+    <KeyBinding Command="{x:Static local:MainWindow.DeselectCommand}" Key="Escape"/>
+  </wpfui:FluentWindow.InputBindings>
 
   <wpfui:FluentWindow.Resources>
     <converters:DeviceTypeToIconConverter x:Key="DeviceTypeToIcon" />
@@ -162,7 +177,11 @@
       <StackPanel Grid.Column="0" Margin="0,0,8,0">
         <TextBlock Text="{Binding [Main.DevicesHeader], Source={x:Static loc:Loc.Instance}}" FontSize="16" FontWeight="SemiBold" Margin="4,0,4,8"/>
         <ScrollViewer MaxHeight="220" VerticalScrollBarVisibility="Auto">
-          <ItemsControl x:Name="DeviceList" ItemTemplate="{StaticResource DeviceTemplate}"/>
+          <StackPanel>
+            <ItemsControl x:Name="DeviceList" ItemTemplate="{StaticResource DeviceTemplate}"/>
+            <TextBlock x:Name="DevicesEmptyText" Text="{Binding [Main.EmptyDevices], Source={x:Static loc:Loc.Instance}}"
+                       FontSize="12" Foreground="{DynamicResource TextSecondary}" Margin="4,4,4,8" Visibility="Visible"/>
+          </StackPanel>
         </ScrollViewer>
 
         <StackPanel Orientation="Horizontal" Margin="4,8,4,8">
@@ -176,13 +195,21 @@
         <Separator Margin="4,4"/>
         <TextBlock Text="{Binding [Main.TransferHeader], Source={x:Static loc:Loc.Instance}}" FontSize="16" FontWeight="SemiBold" Margin="4,0,4,8"/>
         <ScrollViewer MaxHeight="180" VerticalScrollBarVisibility="Auto">
-          <ItemsControl x:Name="TransferList" ItemTemplate="{StaticResource TransferTemplate}"/>
+          <StackPanel>
+            <ItemsControl x:Name="TransferList" ItemTemplate="{StaticResource TransferTemplate}"/>
+            <TextBlock x:Name="TransfersEmptyText" Text="{Binding [Main.EmptyTransfers], Source={x:Static loc:Loc.Instance}}"
+                       FontSize="12" Foreground="{DynamicResource TextSecondary}" Margin="4,4,4,8" Visibility="Visible"/>
+          </StackPanel>
         </ScrollViewer>
 
         <Separator Margin="4,4"/>
         <TextBlock Text="{Binding [Main.HistoryHeader], Source={x:Static loc:Loc.Instance}}" FontSize="14" FontWeight="SemiBold" Margin="4,0,4,8"/>
         <ScrollViewer MaxHeight="120" VerticalScrollBarVisibility="Auto">
-          <ItemsControl x:Name="HistoryList" ItemTemplate="{StaticResource HistoryTemplate}"/>
+          <StackPanel>
+            <ItemsControl x:Name="HistoryList" ItemTemplate="{StaticResource HistoryTemplate}"/>
+            <TextBlock x:Name="HistoryEmptyText" Text="{Binding [Main.EmptyHistory], Source={x:Static loc:Loc.Instance}}"
+                       FontSize="12" Foreground="{DynamicResource TextSecondary}" Margin="4,4,4,8" Visibility="Visible"/>
+          </StackPanel>
         </ScrollViewer>
       </StackPanel>
 
@@ -195,23 +222,40 @@
         <Border Grid.Row="0" x:Name="DropZone"
                 BorderBrush="{DynamicResource DropZoneBorder}" BorderThickness="2" CornerRadius="12"
                 Background="{DynamicResource DropZoneBackground}" Padding="32"
-                AllowDrop="True" Drop="DropZone_Drop" DragOver="DropZone_DragOver" Margin="4">
-          <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
-            <TextBlock Text="&#x1F4E4;" FontSize="48" HorizontalAlignment="Center" Margin="0,0,0,12"/>
-            <TextBlock Text="{Binding [Main.DropZone], Source={x:Static loc:Loc.Instance}}" FontSize="20" FontWeight="SemiBold"
-                       Foreground="{DynamicResource TextHint}" HorizontalAlignment="Center"/>
-            <TextBlock Text="{Binding [Main.DropZoneHint], Source={x:Static loc:Loc.Instance}}" FontSize="12"
-                       Foreground="{DynamicResource TextSecondary}" HorizontalAlignment="Center" Margin="0,6,0,0"/>
-          </StackPanel>
+                AllowDrop="True" Drop="DropZone_Drop" DragOver="DropZone_DragOver"
+                DragEnter="DropZone_DragEnter" DragLeave="DropZone_DragLeave" Margin="4">
+          <Grid>
+            <Border x:Name="DropZoneHighlight" BorderBrush="{DynamicResource AccentPrimary}"
+                    BorderThickness="3" CornerRadius="12" Visibility="Collapsed" IsHitTestVisible="False"/>
+            <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+              <TextBlock Text="&#x1F4E4;" FontSize="48" HorizontalAlignment="Center" Margin="0,0,0,12"/>
+              <TextBlock Text="{Binding [Main.DropZone], Source={x:Static loc:Loc.Instance}}" FontSize="20" FontWeight="SemiBold"
+                         Foreground="{DynamicResource TextHint}" HorizontalAlignment="Center"/>
+              <TextBlock Text="{Binding [Main.DropZoneHint], Source={x:Static loc:Loc.Instance}}" FontSize="12"
+                         Foreground="{DynamicResource TextSecondary}" HorizontalAlignment="Center" Margin="0,6,0,0"/>
+            </StackPanel>
+          </Grid>
         </Border>
 
         <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="4,8">
           <Button x:Name="SelectFilesButton" Content="{Binding [Main.SelectFiles], Source={x:Static loc:Loc.Instance}}"
                   Padding="16,6" Click="SelectFilesButton_Click"/>
-          <CheckBox x:Name="CompressCheckBox" Content="{Binding [Main.Compress], Source={x:Static loc:Loc.Instance}}"
-                    Margin="12,0,0,0" VerticalAlignment="Center" ToolTip="{Binding [Main.CompressTooltip], Source={x:Static loc:Loc.Instance}}"/>
-          <CheckBox x:Name="ScanCheckBox" Content="{Binding [Main.Scan], Source={x:Static loc:Loc.Instance}}"
-                    Margin="12,0,0,0" VerticalAlignment="Center" ToolTip="{Binding [Main.ScanTooltip], Source={x:Static loc:Loc.Instance}}"/>
+          <CheckBox x:Name="CompressCheckBox" Margin="12,0,0,0" VerticalAlignment="Center" ToolTip="{Binding [Main.CompressTooltip], Source={x:Static loc:Loc.Instance}}">
+            <CheckBox.Content>
+              <StackPanel Orientation="Horizontal">
+                <TextBlock Text="&#x1F4E6;" FontSize="14" VerticalAlignment="Center"/>
+                <TextBlock Text="{Binding [Main.Compress], Source={x:Static loc:Loc.Instance}}" Margin="5,0,0,0" VerticalAlignment="Center"/>
+              </StackPanel>
+            </CheckBox.Content>
+          </CheckBox>
+          <CheckBox x:Name="ScanCheckBox" Margin="12,0,0,0" VerticalAlignment="Center" ToolTip="{Binding [Main.ScanTooltip], Source={x:Static loc:Loc.Instance}}">
+            <CheckBox.Content>
+              <StackPanel Orientation="Horizontal">
+                <TextBlock Text="&#x1F6E1;&#xFE0E;" FontSize="14" VerticalAlignment="Center"/>
+                <TextBlock Text="{Binding [Main.Scan], Source={x:Static loc:Loc.Instance}}" Margin="5,0,0,0" VerticalAlignment="Center"/>
+              </StackPanel>
+            </CheckBox.Content>
+          </CheckBox>
           <TextBlock x:Name="StatusText" Text="{Binding [Main.StatusReady], Source={x:Static loc:Loc.Instance}}" Foreground="Gray"
                      VerticalAlignment="Center" Margin="12,0,0,0"/>
         </StackPanel>
