@@ -20,6 +20,7 @@ using EasyShare.Core.Security;
 using EasyShare.Core.Sessions;
 using EasyShare.Transport.FileTransfer;
 using EasyShare.Transport.Server;
+using EasyShare.Shell;
 using EasyShare.App.Views;
 using H.NotifyIcon;
 using Microsoft.Win32;
@@ -46,6 +47,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
     private bool _isCleanedUp;
     private UpdateService? _updateService;
     private readonly Dictionary<string, TransferViewModel> _receiveTransfers = new();
+    private readonly CancellationTokenSource _cts = new();
     private UpdateInfo? _pendingUpdate;
     private DeviceViewModel? _selectedDevice;
 
@@ -114,6 +116,44 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         _discovery.DeviceLost += OnDeviceLost;
         _server.UploadRequested += OnUploadRequested;
         _server.UploadCompleted += OnUploadCompleted;
+
+        RegisterContextMenu();
+        StartNamedPipeListener();
+    }
+
+    private void RegisterContextMenu()
+    {
+        try
+        {
+            if (!ShellIntegration.IsRegistered())
+            {
+                var exePath = Environment.ProcessPath;
+                ShellIntegration.Register(exePath);
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[EasyShare] Context menu registration failed: {ex.Message}");
+        }
+    }
+
+    private void StartNamedPipeListener()
+    {
+        _ = Task.Run(async () =>
+        {
+            while (!_cts.IsCancellationRequested)
+            {
+                try
+                {
+                    await NamedPipeServer.StartServerAsync(files =>
+                    {
+                        Dispatcher.Invoke(() => SendFiles(files, _selectedDevice));
+                    }, _cts.Token);
+                }
+                catch (OperationCanceledException) { break; }
+                catch { await Task.Delay(1000); }
+            }
+        });
     }
 
     private void StartServices()
@@ -506,6 +546,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         _server?.Stop();
         _discovery?.Dispose();
         _certificate?.Dispose();
+        _cts.Cancel();
     }
 
     private void CheckForUpdatesAsync()

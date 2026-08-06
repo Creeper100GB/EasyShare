@@ -118,17 +118,11 @@ public class UpdateService
                 + "setlocal\r\n"
                 + "ping -n 3 127.0.0.1 >nul\r\n"
                 + "taskkill /f /im " + exeName + " 2>nul\r\n"
-                + "ping -n 3 127.0.0.1 >nul\r\n"
-                + "set SOURCE=" + sourceExe + "\r\n"
-                + "set DEST=" + _installDir + "\r\n"
-                + ":retry\r\n"
-                + "copy /y \"%SOURCE%\" \"%DEST%\\" + exeName + "\" >nul 2>&1\r\n"
-                + "if errorlevel 1 (\r\n"
-                + "  ping -n 4 127.0.0.1 >nul\r\n"
-                + "  goto retry\r\n"
-                + ")\r\n"
+                + "ping -n 5 127.0.0.1 >nul\r\n"
+                + "xcopy /y /e /i \"" + tempExtract + "\\*\" \"" + _installDir + "\\\" >nul 2>&1\r\n"
                 + "del /q \"" + tempZip + "\" >nul 2>&1\r\n"
-                + "start \"\" \"%DEST%\\" + exeName + "\"\r\n"
+                + "rd /s /q \"" + tempExtract + "\" >nul 2>&1\r\n"
+                + "start \"\" \"" + _installDir + "\\" + exeName + "\"\r\n"
                 + "del \"%~f0\"\r\n";
 
             var updateScript = Path.Combine(Path.GetTempPath(), "EasyShare-update.bat");
