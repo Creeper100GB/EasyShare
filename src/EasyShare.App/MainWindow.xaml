@@ -208,6 +208,8 @@
         <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="4,8">
           <Button x:Name="SelectFilesButton" Content="{Binding [Main.SelectFiles], Source={x:Static loc:Loc.Instance}}"
                   Padding="16,6" Click="SelectFilesButton_Click"/>
+          <CheckBox x:Name="CompressCheckBox" Content="{Binding [Main.Compress], Source={x:Static loc:Loc.Instance}}"
+                    Margin="12,0,0,0" VerticalAlignment="Center" ToolTip="{Binding [Main.CompressTooltip], Source={x:Static loc:Loc.Instance}}"/>
           <TextBlock x:Name="StatusText" Text="{Binding [Main.StatusReady], Source={x:Static loc:Loc.Instance}}" Foreground="Gray"
                      VerticalAlignment="Center" Margin="12,0,0,0"/>
         </StackPanel>

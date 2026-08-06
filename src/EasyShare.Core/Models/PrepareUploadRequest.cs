@@ -9,4 +9,10 @@ public class PrepareUploadRequest
 
     [JsonPropertyName("files")]
     public Dictionary<string, FileEntry> Files { get; set; } = new();
+
+    [JsonPropertyName("compressed")]
+    public bool Compressed { get; set; }
+
+    [JsonPropertyName("originalFileCount")]
+    public int OriginalFileCount { get; set; }
 }

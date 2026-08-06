@@ -1,4 +1,5 @@
 using System.IO;
+using System.IO.Compression;
 using System.Text;
 using EasyShare.Core.Models;
 using Microsoft.AspNetCore.WebUtilities;
@@ -8,6 +9,38 @@ namespace EasyShare.Core.Tests;
 
 public class MultipartStreamingTests
 {
+    [Fact]
+    public void ZipRoundtrip_PreservesFileContents()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), "EasyShareTest", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            var source1 = Path.Combine(tempDir, "a.txt");
+            var source2 = Path.Combine(tempDir, "b.txt");
+            File.WriteAllText(source1, new string('x', 100_000));
+            File.WriteAllText(source2, new string('y', 200_000));
+
+            var zipPath = Path.Combine(tempDir, "test.zip");
+            using (var zip = ZipFile.Open(zipPath, ZipArchiveMode.Create))
+            {
+                zip.CreateEntryFromFile(source1, "a.txt", CompressionLevel.Optimal);
+                zip.CreateEntryFromFile(source2, "b.txt", CompressionLevel.Optimal);
+            }
+
+            var extractDir = Path.Combine(tempDir, "extracted");
+            ZipFile.ExtractToDirectory(zipPath, extractDir);
+
+            Assert.Equal(new string('x', 100_000), File.ReadAllText(Path.Combine(extractDir, "a.txt")));
+            Assert.Equal(new string('y', 200_000), File.ReadAllText(Path.Combine(extractDir, "b.txt")));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
     [Fact]
     public async Task MultipartReader_BreakOnFileSection_PreservesFileBody()
     {

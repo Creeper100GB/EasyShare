@@ -15,6 +15,8 @@ public class UploadRequestEventArgs : EventArgs
     public DeviceInfo Sender { get; set; } = new();
     public List<FileEntry> Files { get; set; } = new();
     public string Fingerprint { get; set; } = string.Empty;
+    public bool Compressed { get; set; }
+    public int OriginalFileCount { get; set; }
 }
 
 public class UploadProgressEventArgs : EventArgs
@@ -38,6 +40,8 @@ public class UploadCompletedEventArgs : EventArgs
     public string FileName { get; set; } = string.Empty;
     public long Size { get; set; }
     public string SavePath { get; set; } = string.Empty;
+    public bool Compressed { get; set; }
+    public int OriginalFileCount { get; set; }
 }
 
 public class LocalSendServer
@@ -63,6 +67,8 @@ public class LocalSendServer
         public HashSet<string> Received { get; set; } = new();
         public TaskCompletionSource<PrepareUploadResponse> Tcs { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public CancellationTokenSource UploadCts { get; } = new();
+        public bool Compressed { get; set; }
+        public int OriginalFileCount { get; set; }
     }
 
     public LocalSendServer(X509Certificate2 certificate)
@@ -216,6 +222,8 @@ public class LocalSendServer
             {
                 Sender = sender,
                 Files = request.Files.Values.ToList(),
+                Compressed = request.Compressed,
+                OriginalFileCount = request.OriginalFileCount,
             };
 
             lock (_lock) _pending[sessionId] = pending;
@@ -226,6 +234,8 @@ public class LocalSendServer
                 Sender = sender,
                 Files = pending.Files,
                 Fingerprint = sender.Fingerprint,
+                Compressed = pending.Compressed,
+                OriginalFileCount = pending.OriginalFileCount,
             });
 
             using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(2));
@@ -368,6 +378,8 @@ public class LocalSendServer
                     FileName = safeName,
                     Size = writeSucceeded ? bytesReceived : 0,
                     SavePath = filePath,
+                    Compressed = pending.Compressed,
+                    OriginalFileCount = pending.OriginalFileCount,
                 });
             }
 

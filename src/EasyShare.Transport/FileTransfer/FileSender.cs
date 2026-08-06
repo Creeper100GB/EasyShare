@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using System.IO;
+using System.IO.Compression;
 using System.Net.Http;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
@@ -52,6 +54,28 @@ public class FileSender : IDisposable
         _client.Timeout = Timeout.InfiniteTimeSpan;
     }
 
+    private async Task<string> CreateTempZipAsync(List<FileEntry> files, CancellationToken ct)
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), "EasyShare", "zip");
+        Directory.CreateDirectory(tempDir);
+        var zipPath = Path.Combine(tempDir, $"EasyShare_{Guid.NewGuid():N}.zip");
+
+        await Task.Run(() =>
+        {
+            using var zip = ZipFile.Open(zipPath, ZipArchiveMode.Create);
+            foreach (var file in files)
+            {
+                if (file.LocalFilePath != null && File.Exists(file.LocalFilePath))
+                {
+                    var entryName = file.FileName;
+                    zip.CreateEntryFromFile(file.LocalFilePath, entryName, CompressionLevel.Optimal);
+                }
+            }
+        }, ct);
+
+        return zipPath;
+    }
+
     private bool ValidateCertificate(HttpRequestMessage request, X509Certificate2? cert, X509Chain? chain, System.Net.Security.SslPolicyErrors errors)
     {
         if (cert is null) return false;
@@ -60,19 +84,35 @@ public class FileSender : IDisposable
         return string.Equals(fingerprint, _targetFingerprint, StringComparison.OrdinalIgnoreCase);
     }
 
-    public async Task SendAsync(TransferSession session, CancellationToken ct = default)
+    public async Task SendAsync(TransferSession session, CancellationToken ct = default, bool compress = false)
     {
         StatusChanged?.Invoke(this, TransferStatus.Active);
         _totalBytes = session.Files.Sum(f => f.Size);
         _bytesSent = 0;
         _lastSpeedBytes = 0;
         _lastSpeedTimestamp = Stopwatch.GetTimestamp();
+        _lastProgressTicks = 0;
         var scheme = _useTls ? "https" : "http";
         var baseUrl = $"{scheme}://{_targetIp}:{_targetPort}";
 
+        string? tempZipPath = null;
+        var compressed = compress && session.Files.Count > 1;
+        var originalFileCount = session.Files.Count;
         try
         {
-            var prepare = await PrepareUploadAsync(baseUrl, session, ct);
+            if (compressed)
+            {
+                tempZipPath = await CreateTempZipAsync(session.Files, ct);
+                session.Files = new List<FileEntry> { new FileEntry
+                {
+                    Id = "zip",
+                    FileName = Path.GetFileName(tempZipPath),
+                    Size = new FileInfo(tempZipPath).Length,
+                    LocalFilePath = tempZipPath,
+                }};
+            }
+
+            var prepare = await PrepareUploadAsync(baseUrl, session, ct, compressed, originalFileCount);
             if (prepare is null || prepare.Files.Count == 0)
             {
                 StatusChanged?.Invoke(this, TransferStatus.Rejected);
@@ -99,14 +139,21 @@ public class FileSender : IDisposable
             StatusChanged?.Invoke(this, TransferStatus.Failed);
             throw;
         }
+        finally
+        {
+            if (tempZipPath != null && File.Exists(tempZipPath))
+                try { File.Delete(tempZipPath); } catch { }
+        }
     }
 
-    private async Task<PrepareUploadResponse?> PrepareUploadAsync(string baseUrl, TransferSession session, CancellationToken ct)
+    private async Task<PrepareUploadResponse?> PrepareUploadAsync(string baseUrl, TransferSession session, CancellationToken ct, bool compressed, int originalFileCount)
     {
         var request = new PrepareUploadRequest
         {
             Info = _localInfo,
             Files = session.Files.ToDictionary(f => f.Id, f => f),
+            Compressed = compressed,
+            OriginalFileCount = originalFileCount,
         };
 
         var json = JsonSerializer.Serialize(request);

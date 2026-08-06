@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.IO;
+using System.IO.Compression;
 using System.Net;
 using System.Net.Sockets;
 using System.Reflection;
@@ -437,6 +438,11 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
             CanCancel = true,
         };
 
+        if (CompressCheckBox.IsChecked == true && filePaths.Length > 1)
+        {
+            transfer.FileName = Loc.Tr("Transfer.FilesToCompressed", filePaths.Length, target.Alias);
+        }
+
         Dispatcher.Invoke(() => Transfers.Add(transfer));
         StatusText.Text = Loc.Tr("Main.StatusSendingTo", target.Alias);
 
@@ -490,7 +496,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
             try
             {
                 using (fileSender)
-                    await fileSender.SendAsync(session, cts.Token);
+                    await fileSender.SendAsync(session, cts.Token, compress: CompressCheckBox.IsChecked == true);
             }
             catch (OperationCanceledException)
             {
@@ -550,7 +556,9 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
     {
         var transfer = new TransferViewModel
         {
-            FileName = e.Files.Count == 1 ? e.Files[0].FileName : Loc.Tr("Transfer.FilesFrom", e.Files.Count, e.Sender.Alias),
+            FileName = e.Compressed
+                ? Loc.Tr("Transfer.FilesFromCompressed", e.OriginalFileCount, e.Sender.Alias)
+                : e.Files.Count == 1 ? e.Files[0].FileName : Loc.Tr("Transfer.FilesFrom", e.Files.Count, e.Sender.Alias),
             Progress = 0, SpeedText = string.Empty, StatusText = Loc.Tr("Transfer.Running"), Status = TransferStatus.Active,
             CanCancel = true,
         };
@@ -581,7 +589,25 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
                 transfer.Progress = 1;
                 transfer.StatusText = Loc.Tr("Transfer.Completed");
                 transfer.CanCancel = false;
-                History.Insert(0, new HistoryEntry { FileName = e.FileName, Direction = "←", Timestamp = DateTime.Now });
+
+                if (e.Compressed && File.Exists(e.SavePath) && Path.GetExtension(e.SavePath).Equals(".zip", StringComparison.OrdinalIgnoreCase))
+                {
+                    try
+                    {
+                        var extractDir = Path.Combine(Path.GetDirectoryName(e.SavePath)!, Path.GetFileNameWithoutExtension(e.SavePath));
+                        ZipFile.ExtractToDirectory(e.SavePath, extractDir);
+                        File.Delete(e.SavePath);
+                        History.Insert(0, new HistoryEntry { FileName = Loc.Tr("Transfer.ExtractedFiles", e.OriginalFileCount, Path.GetFileName(extractDir)), Direction = "←", Timestamp = DateTime.Now });
+                    }
+                    catch (Exception ex)
+                    {
+                        transfer.StatusText = Loc.Tr("Transfer.ExtractFailed", ex.Message);
+                    }
+                }
+                else
+                {
+                    History.Insert(0, new HistoryEntry { FileName = e.FileName, Direction = "←", Timestamp = DateTime.Now });
+                }
             }
             StatusText.Text = Loc.Tr("Main.StatusReceived", e.FileName);
 
