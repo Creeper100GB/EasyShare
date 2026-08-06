@@ -65,9 +65,15 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create "${{ github.ref_name }}" "publish/$env:asset" "publish/$env:asset.sha256" `
-            --repo "${{ github.repository }}" --title "${{ github.ref_name }}" `
-            --notes "Automatischer Build. Download und entpacken, dann EasyShare.exe starten."
+          $exists = gh release view "${{ github.ref_name }}" --repo "${{ github.repository }}" 2>$null -q
+          if (-not $exists) {
+            gh release create "${{ github.ref_name }}" "publish/$env:asset" "publish/$env:asset.sha256" `
+              --repo "${{ github.repository }}" --title "${{ github.ref_name }}" `
+              --notes "Automatischer Build. Download und entpacken, dann EasyShare.exe starten."
+          } else {
+            gh release upload "${{ github.ref_name }}" "publish/$env:asset" "publish/$env:asset.sha256" `
+              --repo "${{ github.repository }}" --clobber
+          }
 
       - name: Publish nightly release
         if: "!startsWith(github.ref, 'refs/tags/')"
