@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Net;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
@@ -58,6 +59,10 @@ public class LocalSendServer
     private string _savePath = string.Empty;
     private readonly object _lock = new();
     private readonly Dictionary<string, PendingUpload> _pending = new();
+    private readonly ConcurrentDictionary<string, DateTime> _webTokens = new();
+    private const long MaxWebUploadBytes = 10L * 1024 * 1024 * 1024;
+    private const int WebTokenTtlMinutes = 30;
+    private const int MaxWebTokens = 16;
 
     private sealed class PendingUpload
     {
@@ -151,10 +156,33 @@ public class LocalSendServer
 
         var app = builder.Build();
 
-        app.MapGet("/", () => WebHtml.Replace("{ALIAS}", _alias));
+        app.MapGet("/", (HttpContext context) =>
+        {
+            var token = Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(16));
+            var expires = DateTime.UtcNow.AddMinutes(WebTokenTtlMinutes);
+            PruneExpiredTokens();
+            if (_webTokens.Count >= MaxWebTokens)
+            {
+                foreach (var kv in _webTokens.OrderBy(k => k.Value).Take(_webTokens.Count - MaxWebTokens + 1))
+                    ((ICollection<KeyValuePair<string, DateTime>>)_webTokens).Remove(kv);
+            }
+            _webTokens[token] = expires;
+            return Results.Text(
+                WebHtml.Replace("{ALIAS}", _alias).Replace("{TOKEN}", token),
+                "text/html");
+        });
 
         app.MapPost("/upload", async (HttpContext context) =>
         {
+            var token = context.Request.Query["token"].ToString();
+            if (string.IsNullOrEmpty(token))
+                token = context.Request.Headers["X-EasyShare-Token"].ToString();
+            if (string.IsNullOrEmpty(token) || !IsWebTokenValid(token))
+            {
+                context.Response.StatusCode = 401;
+                return;
+            }
+
             var boundary = GetMultipartBoundary(context.Request.ContentType);
             if (boundary is null)
             {
@@ -167,6 +195,7 @@ public class LocalSendServer
 
             var reader = new MultipartReader(boundary, context.Request.Body);
             MultipartSection? section;
+            long totalBytes = 0;
             while ((section = await reader.ReadNextSectionAsync()) != null)
             {
                 var disposition = section.GetContentDispositionHeader();
@@ -174,8 +203,21 @@ public class LocalSendServer
 
                 var safeName = SanitizeFileName(disposition.FileName.Value ?? "file");
                 var filePath = GetUniquePath(savePath, safeName);
-                await using var stream = File.Create(filePath);
-                await section.Body.CopyToAsync(stream);
+                try
+                {
+                    long written = 0;
+                    await using (var stream = File.Create(filePath))
+                    {
+                        written = await CopyWithLimitAsync(section.Body, stream, MaxWebUploadBytes - totalBytes, context.RequestAborted);
+                    }
+                    totalBytes += written;
+                }
+                catch (WebUploadLimitExceededException)
+                {
+                    try { File.Delete(filePath); } catch { }
+                    context.Response.StatusCode = 413;
+                    return;
+                }
             }
 
             context.Response.StatusCode = 200;
@@ -422,19 +464,64 @@ public class LocalSendServer
         return null;
     }
 
-    private static string GetUniquePath(string dir, string fileName)
+    internal static string GetUniquePath(string dir, string fileName)
     {
-        var path = Path.Combine(dir, fileName);
-        if (!File.Exists(path)) return path;
-
         var name = Path.GetFileNameWithoutExtension(fileName);
         var ext = Path.GetExtension(fileName);
-        for (int i = 1; ; i++)
+        for (int i = 0; i < 10000; i++)
         {
-            var candidate = Path.Combine(dir, $"{name} ({i}){ext}");
-            if (!File.Exists(candidate)) return candidate;
+            var candidate = i == 0
+                ? Path.Combine(dir, fileName)
+                : Path.Combine(dir, $"{name} ({i}){ext}");
+            try
+            {
+                using var fs = new FileStream(candidate, FileMode.CreateNew, FileAccess.Write, FileShare.None);
+                return candidate;
+            }
+            catch (IOException)
+            {
+            }
+        }
+        throw new IOException($"Kein freier Dateiname für \"{fileName}\" verfügbar.");
+    }
+
+    private bool IsWebTokenValid(string token)
+    {
+        var now = DateTime.UtcNow;
+        PruneExpiredTokens();
+
+        if (_webTokens.TryGetValue(token, out var expires) && expires >= now)
+        {
+            _webTokens.TryRemove(token, out _);
+            _webTokens[token] = now.AddMinutes(WebTokenTtlMinutes);
+            return true;
+        }
+        return false;
+    }
+
+    private void PruneExpiredTokens()
+    {
+        var now = DateTime.UtcNow;
+        foreach (var kv in _webTokens.Where(kv => kv.Value < now).ToList())
+            _webTokens.TryRemove(kv.Key, out _);
+    }
+
+    private static async Task<long> CopyWithLimitAsync(Stream source, Stream destination, long limit, CancellationToken ct)
+    {
+        var buffer = new byte[262144];
+        long copied = 0;
+        while (true)
+        {
+            int read = await source.ReadAsync(buffer.AsMemory(0, buffer.Length), ct);
+            if (read <= 0) return copied;
+            copied += read;
+            if (copied > limit)
+                throw new WebUploadLimitExceededException();
+            await destination.WriteAsync(buffer.AsMemory(0, read), ct);
         }
     }
+
+    private sealed class WebUploadLimitExceededException : Exception;
 
     public void Stop()
     {
@@ -478,6 +565,7 @@ const status=document.getElementById('status');
 const sendBtn=document.getElementById('sendBtn');
 const progress=document.getElementById('progress');
 const progressBar=document.getElementById('progressBar');
+const token='{TOKEN}';
 
 async function sendFiles(){
   const input=document.getElementById('fileInput');
@@ -501,7 +589,8 @@ async function sendFiles(){
     let done=0;
     for(const f of input.files){
       const body=new FormData();body.append('file',f);
-      await fetch('/upload',{method:'POST',body});
+      const res=await fetch('/upload?token='+token,{method:'POST',body});
+      if(!res.ok){throw new Error('HTTP '+res.status)}
       done++;
       progressBar.style.width=(done/total*100)+'%';
     }

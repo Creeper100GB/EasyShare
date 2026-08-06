@@ -47,7 +47,7 @@ public class FileSender : IDisposable
         }
         else
         {
-            handler.ServerCertificateCustomValidationCallback = (_, _, _, _) => true;
+            System.Diagnostics.Debug.WriteLine("[EasyShare] Warnung: TLS deaktiviert - Verbindung wird ohne Zertifikatsvalidierung aufgebaut.");
         }
 
         _client = new HttpClient(handler);

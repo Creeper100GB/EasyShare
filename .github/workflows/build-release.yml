@@ -54,12 +54,18 @@ jobs:
             -DestinationPath "publish/EasyShare-nightly-win-x64.zip"
           echo "asset=EasyShare-nightly-win-x64.zip" >> $env:GITHUB_ENV
 
+      - name: Create checksum
+        shell: powershell
+        run: |
+          $hash = (Get-FileHash -Path "publish/$env:asset" -Algorithm SHA256).Hash.ToLowerInvariant()
+          Set-Content -Path "publish/$env:asset.sha256" -Value $hash
+
       - name: Publish tag release
         if: startsWith(github.ref, 'refs/tags/')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create "${{ github.ref_name }}" "publish/$env:asset" `
+          gh release create "${{ github.ref_name }}" "publish/$env:asset" "publish/$env:asset.sha256" `
             --repo "${{ github.repository }}" --title "${{ github.ref_name }}" `
             --notes "Automatischer Build. Download und entpacken, dann EasyShare.exe starten."
 
@@ -71,6 +77,6 @@ jobs:
         run: |
           gh release delete nightly --yes --repo "${{ github.repository }}"
           if ($LASTEXITCODE -ne 0) { $i = 0 }
-          gh release create nightly "publish/$env:asset" `
+          gh release create nightly "publish/$env:asset" "publish/$env:asset.sha256" `
             --prerelease --latest=false --repo "${{ github.repository }}" `
             --title "Nightly" --notes "Automatischer Build von master."

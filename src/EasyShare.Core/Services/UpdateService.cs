@@ -1,6 +1,8 @@
 using System.Diagnostics;
 using System.IO.Compression;
+using System.Security.Cryptography;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace EasyShare.Core.Services;
 
@@ -17,6 +19,10 @@ public class UpdateService
     private const string RepoOwner = "Creeper100GB";
     private const string RepoName = "EasyShare";
     private const string AssetPattern = "win-x64";
+    private const long MaxAssetBytes = 5L * 1024 * 1024 * 1024;
+    private const long MaxSingleEntryBytes = 10L * 1024 * 1024 * 1024;
+    private const long MaxZipExpansionRatio = 100;
+    private static readonly Regex ExecutableNameRegex = new(@"^[\w\-\.]+\.exe$", RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
     private readonly string _installDir;
     private readonly string _currentVersion;
@@ -83,27 +89,18 @@ public class UpdateService
 
         using var httpClient = new HttpClient();
         httpClient.Timeout = TimeSpan.FromMinutes(10);
-        using var response = await httpClient.GetAsync(downloadUrl, HttpCompletionOption.ResponseHeadersRead, ct);
-        response.EnsureSuccessStatusCode();
-        var totalBytes = response.Content.Headers.ContentLength ?? 0L;
-        await using var stream = await response.Content.ReadAsStreamAsync(ct);
-        await using var fs = File.Create(tempZip);
 
-            var buffer = new byte[81920];
-            long read = 0;
-            int bytesRead;
-            while ((bytesRead = await stream.ReadAsync(buffer, ct)) > 0)
-            {
-                await fs.WriteAsync(buffer.AsMemory(0, bytesRead), ct);
-                read += bytesRead;
-                if (totalBytes > 0)
-                    progress?.Report((int)(read * 100 / totalBytes));
-            }
+        try
+        {
+            var zipSize = await DownloadToFileAsync(httpClient, downloadUrl, tempZip, progress, ct);
+
+            var expectedHash = await GetHashAssetAsync(httpClient, downloadUrl + ".sha256", ct);
+            if (!VerifySha256File(tempZip, expectedHash))
+                throw new InvalidDataException("SHA256-Prüfsumme des Update-Archivs konnte nicht bestätigt werden.");
 
             if (Directory.Exists(tempExtract))
                 Directory.Delete(tempExtract, true);
-            Directory.CreateDirectory(tempExtract);
-            ZipFile.ExtractToDirectory(tempZip, tempExtract, overwriteFiles: true);
+            ExtractZipSafely(tempZip, tempExtract, zipSize);
 
             var sourceExe = Path.Combine(tempExtract, "EasyShare.exe");
             if (!File.Exists(sourceExe))
@@ -114,10 +111,13 @@ public class UpdateService
             }
 
             var exeName = Path.GetFileName(sourceExe);
+            if (!IsValidExecutableName(exeName))
+                throw new InvalidDataException($"Ungültiger Name der ausführbaren Datei im Update: {exeName}");
+
             var scriptContent = "@echo off\r\n"
                 + "setlocal\r\n"
                 + "ping -n 3 127.0.0.1 >nul\r\n"
-                + "taskkill /f /im " + exeName + " 2>nul\r\n"
+                + "taskkill /f /im \"" + exeName + "\" 2>nul\r\n"
                 + "ping -n 5 127.0.0.1 >nul\r\n"
                 + "xcopy /y /e /i \"" + tempExtract + "\\*\" \"" + _installDir + "\\\" >nul 2>&1\r\n"
                 + "del /q \"" + tempZip + "\" >nul 2>&1\r\n"
@@ -135,6 +135,99 @@ public class UpdateService
                 UseShellExecute = false,
                 CreateNoWindow = true,
             });
+        }
+        finally
+        {
+            if (File.Exists(tempZip))
+                try { File.Delete(tempZip); } catch { }
+        }
+    }
+
+    internal static bool IsValidExecutableName(string fileName)
+        => ExecutableNameRegex.IsMatch(fileName);
+
+    internal static bool VerifySha256File(string filePath, string? expectedHash)
+    {
+        if (string.IsNullOrWhiteSpace(expectedHash)) return false;
+        expectedHash = expectedHash.Trim();
+        var token = expectedHash.Split(' ', StringSplitOptions.RemoveEmptyEntries)[0];
+        if (token.Length != 64 || !token.All(Uri.IsHexDigit)) return false;
+
+        using var sha = SHA256.Create();
+        using var fs = File.OpenRead(filePath);
+        var actual = Convert.ToHexStringLower(sha.ComputeHash(fs));
+        return actual == token.ToLowerInvariant();
+    }
+
+    private static async Task<long> DownloadToFileAsync(HttpClient client, string url, string destPath, IProgress<int>? progress, CancellationToken ct)
+    {
+        using var response = await client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct);
+        response.EnsureSuccessStatusCode();
+        var totalBytes = response.Content.Headers.ContentLength ?? 0L;
+        if (totalBytes > MaxAssetBytes)
+            throw new InvalidDataException("Update-Asset überschreitet die zulässige Größe.");
+
+        await using var source = await response.Content.ReadAsStreamAsync(ct);
+        await using var dest = File.Create(destPath);
+
+        var buffer = new byte[81920];
+        long read = 0;
+        int bytesRead;
+        while ((bytesRead = await source.ReadAsync(buffer, ct)) > 0)
+        {
+            read += bytesRead;
+            if (read > MaxAssetBytes)
+                throw new InvalidDataException("Update-Asset überschreitet die zulässige Größe.");
+            await dest.WriteAsync(buffer.AsMemory(0, bytesRead), ct);
+            if (totalBytes > 0)
+                progress?.Report((int)(read * 100 / totalBytes));
+        }
+        return read;
+    }
+
+    private static async Task<string?> GetHashAssetAsync(HttpClient client, string url, CancellationToken ct)
+    {
+        try
+        {
+            using var response = await client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct);
+            if (!response.IsSuccessStatusCode) return null;
+            return (await response.Content.ReadAsStringAsync(ct)).Trim();
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static void ExtractZipSafely(string zipPath, string extractDir, long zipSize)
+    {
+        Directory.CreateDirectory(extractDir);
+        var extractRoot = Path.GetFullPath(extractDir);
+        var maxTotal = Math.Max(zipSize * MaxZipExpansionRatio, 1L * 1024 * 1024 * 1024);
+        long totalExtracted = 0;
+
+        using var archive = ZipFile.OpenRead(zipPath);
+        foreach (var entry in archive.Entries)
+        {
+            if (entry.Length > MaxSingleEntryBytes)
+                throw new InvalidDataException($"Update-Eintrag zu groß: {entry.FullName}");
+            totalExtracted += entry.Length;
+            if (totalExtracted > maxTotal)
+                throw new InvalidDataException("Update-Archiv expandiert über das erlaubte Maß.");
+
+            var target = Path.GetFullPath(Path.Combine(extractDir, entry.FullName));
+            if (!target.StartsWith(extractRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidDataException($"Update-Eintrag außerhalb des Zielverzeichnisses: {entry.FullName}");
+
+            if (string.IsNullOrEmpty(entry.Name))
+            {
+                Directory.CreateDirectory(target);
+                continue;
+            }
+
+            Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+            entry.ExtractToFile(target, overwrite: true);
+        }
     }
 
     private static int CompareVersions(string a, string b)
