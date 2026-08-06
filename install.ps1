@@ -12,6 +12,15 @@ if (Test-Path $exe) {
     Write-Host 'EasyShare ist bereits installiert. Überschreibe mit neuester Version ...'
 }
 
+# Laufende Instanz beenden, sonst sind die DLLs gesperrt und Copy-Item schlägt fehl.
+$wasRunning = $false
+Get-Process EasyShare -ErrorAction SilentlyContinue | ForEach-Object {
+    $wasRunning = $true
+    Write-Host 'Beende laufende EasyShare-Instanz ...'
+    Stop-Process -Id $_.Id -Force
+}
+if ($wasRunning) { Start-Sleep -Milliseconds 500 }
+
 # Neuestes Release auflösen (ohne GitHub API → kein Rate-Limit)
 # Hinweis: -MaximumRedirection 0 wirft in PowerShell 5.1 eine Exception,
 # daher HttpWebRequest mit deaktiviertem AutoRedirect verwenden.
