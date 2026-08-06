@@ -106,7 +106,8 @@ public class LocalSendServer
         lock (_lock)
         {
             if (!_pending.TryGetValue(sessionId, out pending)) return;
-            pending.Tokens = pending.Files.ToDictionary(f => f.Id, _ => Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(16)));
+            if (pending.Tokens.Count == 0)
+                pending.Tokens = pending.Files.ToDictionary(f => f.Id, _ => Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(16)));
         }
 
         if (string.IsNullOrEmpty(savePath))
@@ -125,10 +126,9 @@ public class LocalSendServer
         lock (_lock)
         {
             if (!_pending.TryGetValue(sessionId, out pending)) return;
-            _pending.Remove(sessionId);
         }
         pending.Tcs.TrySetResult(new PrepareUploadResponse { SessionId = sessionId });
-        pending.UploadCts.Dispose();
+        CleanupSession(sessionId, pending);
     }
 
     public void CancelUpload(string sessionId)
@@ -137,11 +137,10 @@ public class LocalSendServer
         lock (_lock)
         {
             if (!_pending.TryGetValue(sessionId, out pending)) return;
-            _pending.Remove(sessionId);
             pending.Tcs.TrySetResult(new PrepareUploadResponse { SessionId = sessionId });
-            pending.UploadCts.Cancel();
         }
-        pending.UploadCts.Dispose();
+        pending.UploadCts.Cancel();
+        CleanupSession(sessionId, pending);
     }
 
     private async Task RunAsync(CancellationToken ct)
@@ -228,9 +227,35 @@ public class LocalSendServer
             await context.Response.WriteAsync("OK");
         });
 
-        app.MapGet("/api/localsend/v2/register", (HttpContext context) =>
+        app.MapGet("/api/localsend/v2/register", () =>
         {
             return Results.Json(GetInfo());
+        });
+
+        app.MapPost("/api/localsend/v2/register", () =>
+        {
+            return Results.Json(GetInfo());
+        });
+
+        app.MapPost("/api/localsend/v2/cancel", async (HttpContext context) =>
+        {
+            EasyShare.Core.Models.CancelUploadRequest? request;
+            try
+            {
+                request = await JsonSerializer.DeserializeAsync<EasyShare.Core.Models.CancelUploadRequest>(context.Request.Body);
+            }
+            catch
+            {
+                request = null;
+            }
+
+            if (string.IsNullOrEmpty(request?.SessionId))
+            {
+                return Results.BadRequest();
+            }
+
+            CancelUpload(request.SessionId);
+            return Results.Ok();
         });
 
         app.MapPost("/api/localsend/v2/prepare-upload", async (HttpContext context) =>
@@ -292,8 +317,7 @@ public class LocalSendServer
             }
             catch (OperationCanceledException)
             {
-                lock (_lock) _pending.Remove(sessionId);
-                pending.UploadCts.Dispose();
+                CleanupSession(sessionId, pending);
                 return Results.StatusCode(StatusCodes.Status408RequestTimeout);
             }
 
@@ -346,12 +370,14 @@ public class LocalSendServer
             }
 
             PendingUpload? pending;
+            CancellationToken uploadToken;
             lock (_lock)
             {
                 if (!_pending.TryGetValue(sessionId, out pending) || !pending.Tokens.TryGetValue(fileId, out var expected) || expected != token)
                 {
                     return Results.StatusCode(StatusCodes.Status403Forbidden);
                 }
+                uploadToken = pending.UploadCts.Token;
             }
 
             var fileEntry = pending.Files.FirstOrDefault(f => f.Id == fileId);
@@ -363,7 +389,7 @@ public class LocalSendServer
             var sw = System.Diagnostics.Stopwatch.StartNew();
             long bytesReceived = 0;
             var totalBytes = fileEntry?.Size ?? 0;
-            var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted, pending.UploadCts.Token);
+            var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted, uploadToken);
             bool writeSucceeded = false;
             long lastProgressTicks = 0;
 
@@ -400,10 +426,15 @@ public class LocalSendServer
             catch (OperationCanceledException)
             {
                 try { File.Delete(filePath); } catch { }
-                lock (_lock) _pending.Remove(sessionId);
-                pending.UploadCts.Dispose();
+                CleanupSession(sessionId, pending);
                 UploadCancelled?.Invoke(this, new UploadCancelledEventArgs { SessionId = sessionId, FileName = safeName });
                 return Results.StatusCode(499);
+            }
+            catch
+            {
+                try { File.Delete(filePath); } catch { }
+                CleanupSession(sessionId, pending);
+                return Results.StatusCode(500);
             }
             finally
             {
@@ -420,7 +451,7 @@ public class LocalSendServer
 
             if (complete)
             {
-                pending.UploadCts.Dispose();
+                CleanupSession(sessionId, pending);
                 UploadCompleted?.Invoke(this, new UploadCompletedEventArgs
                 {
                     SessionId = sessionId,
@@ -438,6 +469,12 @@ public class LocalSendServer
         app.MapGet("/api/localsend/v2/info", () => Results.Json(GetInfo()));
 
         await app.RunAsync(ct);
+    }
+
+    private void CleanupSession(string sessionId, PendingUpload pending)
+    {
+        lock (_lock) _pending.Remove(sessionId);
+        pending.UploadCts.Dispose();
     }
 
     private object GetInfo() => new

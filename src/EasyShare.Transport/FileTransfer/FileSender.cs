@@ -32,6 +32,7 @@ public class FileSender : IDisposable
 
     public event EventHandler<double>? ProgressChanged;
     public event EventHandler<TransferStatus>? StatusChanged;
+    public TransferStatus? LastStatus { get; private set; }
 
     public FileSender(DeviceAnnouncement localInfo, string targetIp, int targetPort, string targetFingerprint, bool useTls, string apiBase)
     {
@@ -89,7 +90,8 @@ public class FileSender : IDisposable
     public async Task SendAsync(TransferSession session, CancellationToken ct = default, bool compress = false)
     {
         StatusChanged?.Invoke(this, TransferStatus.Active);
-        session.Files = session.Files.ToList();
+        LastStatus = TransferStatus.Active;
+        var files = session.Files.ToList();
         _bytesSent = 0;
         _lastSpeedBytes = 0;
         _lastSpeedTimestamp = Stopwatch.GetTimestamp();
@@ -98,17 +100,17 @@ public class FileSender : IDisposable
         var baseUrl = $"{scheme}://{_targetIp}:{_targetPort}";
 
         string? tempZipPath = null;
-        var compressed = session.ContainsFolders || (compress && session.Files.Count > 1);
-        var originalFileCount = session.Files.Count;
+        var compressed = session.ContainsFolders || (compress && files.Count > 1);
+        var originalFileCount = files.Count;
         try
         {
             if (compressed)
             {
-                tempZipPath = await CreateTempZipAsync(session.Files, ct);
+                tempZipPath = await CreateTempZipAsync(files, ct);
                 var entryFileName = session.ZipName is not null
                     ? $"{session.ZipName}.zip"
                     : Path.GetFileName(tempZipPath);
-                session.Files = new List<FileEntry> { new FileEntry
+                files = new List<FileEntry> { new FileEntry
                 {
                     Id = "zip",
                     FileName = entryFileName,
@@ -117,33 +119,37 @@ public class FileSender : IDisposable
                 }};
             }
 
-            _totalBytes = session.Files.Sum(f => f.Size);
+            _totalBytes = files.Sum(f => f.Size);
 
-            var prepare = await PrepareUploadAsync(baseUrl, session, ct, compressed, originalFileCount);
+            var prepare = await PrepareUploadAsync(baseUrl, files, ct, compressed, originalFileCount);
             if (prepare is null || prepare.Files.Count == 0)
             {
                 StatusChanged?.Invoke(this, TransferStatus.Rejected);
+                LastStatus = TransferStatus.Rejected;
                 return;
             }
 
-            for (int i = 0; i < session.Files.Count; i++)
+            for (int i = 0; i < files.Count; i++)
             {
-                var file = session.Files[i];
+                var file = files[i];
                 var token = prepare.Files.TryGetValue(file.Id, out var t) ? t : throw new KeyNotFoundException($"Server did not return token for file {file.Id}");
                 await UploadFileAsync(baseUrl, prepare.SessionId, file, token, ct);
             }
 
             ProgressChanged?.Invoke(this, 1.0);
             StatusChanged?.Invoke(this, TransferStatus.Completed);
+            LastStatus = TransferStatus.Completed;
         }
         catch (OperationCanceledException)
         {
             StatusChanged?.Invoke(this, TransferStatus.Cancelled);
+            LastStatus = TransferStatus.Cancelled;
             throw;
         }
         catch
         {
             StatusChanged?.Invoke(this, TransferStatus.Failed);
+            LastStatus = TransferStatus.Failed;
             throw;
         }
         finally
@@ -153,12 +159,12 @@ public class FileSender : IDisposable
         }
     }
 
-    private async Task<PrepareUploadResponse?> PrepareUploadAsync(string baseUrl, TransferSession session, CancellationToken ct, bool compressed, int originalFileCount)
+    private async Task<PrepareUploadResponse?> PrepareUploadAsync(string baseUrl, List<FileEntry> files, CancellationToken ct, bool compressed, int originalFileCount)
     {
         var request = new PrepareUploadRequest
         {
             Info = _localInfo,
-            Files = session.Files.ToDictionary(f => f.Id, f => f),
+            Files = files.ToDictionary(f => f.Id, f => f),
             Compressed = compressed,
             OriginalFileCount = originalFileCount,
         };
@@ -166,6 +172,10 @@ public class FileSender : IDisposable
         var json = JsonSerializer.Serialize(request);
         using var content = new StringContent(json, Encoding.UTF8, "application/json");
         using var response = await _client.PostAsync($"{baseUrl}{_apiBase}/prepare-upload", content, ct);
+
+        if ((int)response.StatusCode is 403 or 408)
+            return null;
+
         response.EnsureSuccessStatusCode();
 
         var responseJson = await response.Content.ReadAsStringAsync(ct);
