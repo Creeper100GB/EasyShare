@@ -296,6 +296,8 @@
         <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="4,8">
           <Button x:Name="SelectFilesButton" Content="{Binding [Main.SelectFiles], Source={x:Static loc:Loc.Instance}}"
                   Padding="16,6" Click="SelectFilesButton_Click"/>
+          <Button x:Name="SelectFolderButton" Content="{Binding [Main.SelectFolder], Source={x:Static loc:Loc.Instance}}"
+                  Padding="16,6" Margin="8,0,0,0" Click="SelectFolderButton_Click"/>
           <CheckBox x:Name="CompressCheckBox" Margin="12,0,0,0" VerticalAlignment="Center" ToolTip="{Binding [Main.CompressTooltip], Source={x:Static loc:Loc.Instance}}">
             <CheckBox.Content>
               <StackPanel Orientation="Horizontal">

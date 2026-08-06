@@ -98,17 +98,20 @@ public class FileSender : IDisposable
         var baseUrl = $"{scheme}://{_targetIp}:{_targetPort}";
 
         string? tempZipPath = null;
-        var compressed = compress && session.Files.Count > 1;
+        var compressed = session.ContainsFolders || (compress && session.Files.Count > 1);
         var originalFileCount = session.Files.Count;
         try
         {
             if (compressed)
             {
                 tempZipPath = await CreateTempZipAsync(session.Files, ct);
+                var entryFileName = session.ZipName is not null
+                    ? $"{session.ZipName}.zip"
+                    : Path.GetFileName(tempZipPath);
                 session.Files = new List<FileEntry> { new FileEntry
                 {
                     Id = "zip",
-                    FileName = Path.GetFileName(tempZipPath),
+                    FileName = entryFileName,
                     Size = new FileInfo(tempZipPath).Length,
                     LocalFilePath = tempZipPath,
                 }};

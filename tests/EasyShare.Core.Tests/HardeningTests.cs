@@ -1,6 +1,8 @@
 using System.Security.Cryptography;
+using EasyShare.Core.Models;
 using EasyShare.Core.Security;
 using EasyShare.Core.Services;
+using EasyShare.Core.Sessions;
 using EasyShare.Transport.Server;
 
 namespace EasyShare.Core.Tests;
@@ -145,6 +147,78 @@ public class HardeningTests
         finally
         {
             if (File.Exists(path)) File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void CreateSendSession_ExpandsFolderRecursively()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "EasyShareTest", Guid.NewGuid().ToString("N"), "MyFolder");
+        Directory.CreateDirectory(Path.Combine(root, "sub"));
+        try
+        {
+            File.WriteAllText(Path.Combine(root, "a.txt"), "A");
+            File.WriteAllText(Path.Combine(root, "sub", "b.txt"), "B");
+
+            var manager = new SessionManager();
+            var session = manager.CreateSendSession(new DeviceInfo(), [root]);
+
+            Assert.True(session.ContainsFolders);
+            Assert.Equal("MyFolder", session.ZipName);
+            Assert.Equal(2, session.Files.Count);
+            Assert.Contains(session.Files, f => f.FileName == "a.txt");
+            Assert.Contains(session.Files, f => f.FileName == "sub/b.txt");
+            Assert.All(session.Files, f => Assert.NotNull(f.LocalFilePath));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void CreateSendSession_MixedPathsPrefixFolderEntries()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "EasyShareTest", Guid.NewGuid().ToString("N"));
+        var folder = Path.Combine(root, "Folder");
+        Directory.CreateDirectory(folder);
+        try
+        {
+            var file = Path.Combine(root, "f.txt");
+            File.WriteAllText(file, "F");
+            File.WriteAllText(Path.Combine(folder, "c.txt"), "C");
+
+            var manager = new SessionManager();
+            var session = manager.CreateSendSession(new DeviceInfo(), [file, folder]);
+
+            Assert.True(session.ContainsFolders);
+            Assert.Null(session.ZipName);
+            Assert.Contains(session.Files, f => f.FileName == "Folder/c.txt");
+            Assert.Contains(session.Files, f => f.FileName == "f.txt");
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void CreateSendSession_EmptyFolderProducesNoEntries()
+    {
+        var folder = Path.Combine(Path.GetTempPath(), "EasyShareTest", Guid.NewGuid().ToString("N"), "Empty");
+        Directory.CreateDirectory(folder);
+        try
+        {
+            var manager = new SessionManager();
+            var session = manager.CreateSendSession(new DeviceInfo(), [folder]);
+
+            Assert.True(session.ContainsFolders);
+            Assert.Equal("Empty", session.ZipName);
+            Assert.Empty(session.Files);
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
         }
     }
 }

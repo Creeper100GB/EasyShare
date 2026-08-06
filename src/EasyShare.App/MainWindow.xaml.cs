@@ -556,6 +556,16 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
             SendFiles(dialog.FileNames, _selectedDevice);
     }
 
+    private void SelectFolderButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_selectedDevice is null)
+        { StatusText.Text = Loc.Tr("Main.SelectDeviceFirst"); return; }
+
+        var dialog = new OpenFolderDialog { Title = Loc.Tr("Main.SelectFolderDialog") };
+        if (dialog.ShowDialog() == true && !string.IsNullOrEmpty(dialog.FolderName))
+            SendFiles([dialog.FolderName], _selectedDevice);
+    }
+
     private void OpenFilesCommand_Executed(object sender, System.Windows.Input.ExecutedRoutedEventArgs e)
         => SelectFilesButton_Click(sender, e);
 
@@ -584,6 +594,14 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
 
         var session = _sessionManager.CreateSendSession(deviceInfo, filePaths.ToList());
 
+        if (session.Files.Count == 0)
+        {
+            StatusText.Text = Loc.Tr("Main.FolderEmpty");
+            return;
+        }
+
+        var hasFolders = filePaths.Any(Directory.Exists);
+
         var transfer = new TransferViewModel
         {
             FileName = filePaths.Length == 1 ? Path.GetFileName(filePaths[0]) : Loc.Tr("Transfer.FilesTo", filePaths.Length, target.Alias),
@@ -591,9 +609,11 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
             CanCancel = true,
         };
 
-        if (CompressCheckBox.IsChecked == true && filePaths.Length > 1)
+        if (hasFolders || (CompressCheckBox.IsChecked == true && filePaths.Length > 1))
         {
-            transfer.FileName = Loc.Tr("Transfer.FilesToCompressed", filePaths.Length, target.Alias);
+            transfer.FileName = hasFolders && filePaths.Length == 1
+                ? Loc.Tr("Transfer.FolderToCompressed", transfer.FileName, target.Alias)
+                : Loc.Tr("Transfer.FilesToCompressed", filePaths.Length, target.Alias);
         }
 
         Dispatcher.Invoke(() => Transfers.Add(transfer));

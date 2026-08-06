@@ -11,4 +11,8 @@ public class TransferSession
     public DateTime StartedAt { get; set; }
     public double? BytesPerSecond { get; set; }
     public long BytesTransferred { get; set; }
+    public bool ContainsFolders { get; set; }
+
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string? ZipName { get; set; }
 }
