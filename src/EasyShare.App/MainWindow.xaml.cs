@@ -54,6 +54,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
     private UpdateInfo? _pendingUpdate;
     private DeviceViewModel? _selectedDevice;
     private readonly List<string> _pendingFiles = new();
+    private readonly AmsiScanner _amsiScanner = new();
 
     public MainWindow()
     {
@@ -495,6 +496,22 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         {
             try
             {
+                if (ScanCheckBox.IsChecked == true)
+                {
+                    foreach (var file in session.Files)
+                    {
+                        if (file.LocalFilePath is null || !File.Exists(file.LocalFilePath)) continue;
+
+                        Dispatcher.Invoke(() => { transfer.StatusText = Loc.Tr("Transfer.Scanning"); });
+
+                        var scanResult = await Task.Run(() => _amsiScanner.ScanFile(file.LocalFilePath));
+                        if (scanResult == AmsiScanResult.Detected)
+                            throw new MalwareDetectedException(file.FileName);
+                        if (scanResult == AmsiScanResult.Error)
+                            throw new InvalidOperationException(Loc.Tr("Transfer.ScanFailed", file.FileName));
+                    }
+                }
+
                 using (fileSender)
                     await fileSender.SendAsync(session, cts.Token, compress: CompressCheckBox.IsChecked == true);
             }
@@ -509,6 +526,17 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
                         transfer.CanCancel = false;
                         RemoveSendCancel(transfer);
                     }
+                });
+            }
+            catch (MalwareDetectedException ex)
+            {
+                Dispatcher.Invoke(() =>
+                {
+                    transfer.Status = TransferStatus.Failed;
+                    transfer.StatusText = Loc.Tr("Transfer.MalwareFound", ex.FileName);
+                    transfer.CanCancel = false;
+                    RemoveSendCancel(transfer);
+                    StatusText.Text = Loc.Tr("Main.StatusSendError", target.Alias);
                 });
             }
             catch (Exception ex)
@@ -583,33 +611,14 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
     {
         Dispatcher.Invoke(() =>
         {
-            if (_receiveTransfers.Remove(e.SessionId, out var transfer))
+            _receiveTransfers.Remove(e.SessionId, out var transfer);
+            if (transfer is not null)
             {
-                transfer.Status = TransferStatus.Completed;
                 transfer.Progress = 1;
-                transfer.StatusText = Loc.Tr("Transfer.Completed");
                 transfer.CanCancel = false;
-
-                if (e.Compressed && File.Exists(e.SavePath) && Path.GetExtension(e.SavePath).Equals(".zip", StringComparison.OrdinalIgnoreCase))
-                {
-                    try
-                    {
-                        var extractDir = Path.Combine(Path.GetDirectoryName(e.SavePath)!, Path.GetFileNameWithoutExtension(e.SavePath));
-                        ZipFile.ExtractToDirectory(e.SavePath, extractDir);
-                        File.Delete(e.SavePath);
-                        History.Insert(0, new HistoryEntry { FileName = Loc.Tr("Transfer.ExtractedFiles", e.OriginalFileCount, Path.GetFileName(extractDir)), Direction = "←", Timestamp = DateTime.Now });
-                    }
-                    catch (Exception ex)
-                    {
-                        transfer.StatusText = Loc.Tr("Transfer.ExtractFailed", ex.Message);
-                    }
-                }
-                else
-                {
-                    History.Insert(0, new HistoryEntry { FileName = e.FileName, Direction = "←", Timestamp = DateTime.Now });
-                }
+                transfer.StatusText = Loc.Tr("Transfer.Scanning");
             }
-            StatusText.Text = Loc.Tr("Main.StatusReceived", e.FileName);
+            _ = ScanAndFinalizeAsync(e, transfer);
 
             if (!IsVisible)
             {
@@ -618,6 +627,71 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
                 _trayIcon?.ToolTipText = Loc.Tr("Tray.FileReceived", e.FileName);
             }
         });
+    }
+
+    private async Task ScanAndFinalizeAsync(UploadCompletedEventArgs e, TransferViewModel? transfer)
+    {
+        var scanResult = await Task.Run(() => _amsiScanner.ScanFile(e.SavePath));
+
+        Dispatcher.Invoke(() =>
+        {
+            if (scanResult == AmsiScanResult.Detected)
+            {
+                QuarantineFile(e.SavePath);
+                if (transfer is not null)
+                {
+                    transfer.Status = TransferStatus.Failed;
+                    transfer.StatusText = Loc.Tr("Transfer.MalwareFound", e.FileName);
+                }
+                StatusText.Text = Loc.Tr("Transfer.MalwareFound", e.FileName);
+                return;
+            }
+
+            if (scanResult == AmsiScanResult.Error)
+                StatusText.Text = Loc.Tr("Transfer.ScanFailed", e.FileName);
+
+            if (transfer is not null)
+            {
+                transfer.Status = TransferStatus.Completed;
+                transfer.StatusText = Loc.Tr("Transfer.Completed");
+            }
+            StatusText.Text = Loc.Tr("Main.StatusReceived", e.FileName);
+
+            if (e.Compressed && File.Exists(e.SavePath) && Path.GetExtension(e.SavePath).Equals(".zip", StringComparison.OrdinalIgnoreCase))
+            {
+                try
+                {
+                    var extractDir = Path.Combine(Path.GetDirectoryName(e.SavePath)!, Path.GetFileNameWithoutExtension(e.SavePath));
+                    ZipFile.ExtractToDirectory(e.SavePath, extractDir);
+                    File.Delete(e.SavePath);
+                    History.Insert(0, new HistoryEntry { FileName = Loc.Tr("Transfer.ExtractedFiles", e.OriginalFileCount, Path.GetFileName(extractDir)), Direction = "←", Timestamp = DateTime.Now });
+                }
+                catch (Exception ex)
+                {
+                    if (transfer is not null)
+                        transfer.StatusText = Loc.Tr("Transfer.ExtractFailed", ex.Message);
+                }
+            }
+            else
+            {
+                History.Insert(0, new HistoryEntry { FileName = e.FileName, Direction = "←", Timestamp = DateTime.Now });
+            }
+        });
+    }
+
+    private static void QuarantineFile(string filePath)
+    {
+        try
+        {
+            var quarantineDir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "EasyShare", "Quarantine");
+            Directory.CreateDirectory(quarantineDir);
+            var dest = Path.Combine(quarantineDir, Path.GetFileName(filePath));
+            if (File.Exists(dest)) File.Delete(dest);
+            File.Move(filePath, dest);
+        }
+        catch { }
     }
 
     private void OnUploadProgress(object? sender, UploadProgressEventArgs e)
@@ -719,6 +793,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         _server?.Stop();
         _discovery?.Dispose();
         _certificate?.Dispose();
+        _amsiScanner.Dispose();
         _cts.Cancel();
     }
 

@@ -24,7 +24,7 @@
     <Product>EasyShare</Product>
     <Description>Native Windows file sharing - LocalSend compatible</Description>
     <Company>EasyShare</Company>
-    <Version>1.7.0</Version>
+    <Version>1.8.0</Version>
     <Copyright>2026</Copyright>
     <PackageId>EasyShare</PackageId>
   </PropertyGroup>

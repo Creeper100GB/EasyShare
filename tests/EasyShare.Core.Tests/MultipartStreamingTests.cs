@@ -2,6 +2,7 @@ using System.IO;
 using System.IO.Compression;
 using System.Text;
 using EasyShare.Core.Models;
+using EasyShare.Core.Security;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Net.Http.Headers;
 
@@ -9,6 +10,21 @@ namespace EasyShare.Core.Tests;
 
 public class MultipartStreamingTests
 {
+    [Fact]
+    public void AmsiScanner_NonExistentFile_ReturnsError()
+    {
+        var scanner = new AmsiScanner();
+        try
+        {
+            var result = scanner.ScanFile(Path.Combine(Path.GetTempPath(), "definitely_missing_easyshare_test_file.bin"));
+            Assert.Equal(AmsiScanResult.Error, result);
+        }
+        finally
+        {
+            scanner.Dispose();
+        }
+    }
+
     [Fact]
     public void ZipRoundtrip_PreservesFileContents()
     {
