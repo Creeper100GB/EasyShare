@@ -17,6 +17,8 @@ public sealed class Loc : INotifyPropertyChanged
         _strings = Load(_language);
     }
 
+    public event Action? LanguageChanged;
+
     public string Language
     {
         get => _language;
@@ -26,6 +28,7 @@ public sealed class Loc : INotifyPropertyChanged
             _language = value;
             _strings = Load(value);
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs("Item"));
+            LanguageChanged?.Invoke();
         }
     }
 

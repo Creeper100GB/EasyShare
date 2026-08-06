@@ -109,5 +109,6 @@
   "App.CrashTitle": "EasyShare - Unexpected error",
   "App.CrashIntro": "An unexpected error occurred in EasyShare. Please report this incident including the following details:",
   "App.CrashCopy": "Copy",
-  "App.CrashClose": "Close"
+  "App.CrashRestart": "Restart",
+  "App.CrashClose": "Continue"
 }

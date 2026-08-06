@@ -17,6 +17,14 @@ public partial class CrashDialog : Wpf.Ui.Controls.FluentWindow
         Clipboard.SetText(DetailsBox.Text);
     }
 
+    private void Restart_Click(object sender, RoutedEventArgs e)
+    {
+        RestartRequested = true;
+        Close();
+    }
+
+    public bool RestartRequested { get; private set; }
+
     private void Close_Click(object sender, RoutedEventArgs e)
     {
         Close();

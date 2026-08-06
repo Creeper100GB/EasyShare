@@ -80,6 +80,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
 
         LoadConfig();
         Loc.Instance.Language = _config.Language;
+        Loc.Instance.LanguageChanged += OnLanguageChanged;
         RestoreWindowBounds();
         InitializeServices();
         SetupTrayIcon();
@@ -114,6 +115,15 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         if (age < TimeSpan.FromMinutes(1)) return Loc.Tr("Main.SeenSeconds", Math.Max(1, (int)age.TotalSeconds));
         if (age < TimeSpan.FromHours(1)) return Loc.Tr("Main.SeenMinutes", (int)age.TotalMinutes);
         return Loc.Tr("Main.SeenHours", (int)age.TotalHours);
+    }
+
+    private void OnLanguageChanged()
+    {
+        Dispatcher.BeginInvoke(() =>
+        {
+            UpdateSelectedDeviceText();
+            StatusText.Text = Loc.Tr("Main.StatusReady");
+        });
     }
 
     private void ConsumeShareArgs()
@@ -396,62 +406,74 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
 
     private void OnDeviceFound(object? sender, DeviceInfo device)
     {
-        Dispatcher.Invoke(() =>
+        try
         {
-            var existing = Devices.FirstOrDefault(d => d.Fingerprint == device.Fingerprint);
-            if (existing is not null)
+            Dispatcher.Invoke(() =>
             {
-                existing.Alias = device.Alias;
-                existing.DeviceModel = device.DeviceModel ?? Loc.Tr("Main.DeviceUnknown");
-                existing.IpAddress = device.IpAddress;
-                existing.DeviceType = device.DeviceType ?? DeviceType.Desktop;
-                existing.Port = device.Port > 0 ? device.Port : 53317;
-                existing.LastSeen = DateTime.UtcNow;
-                return;
-            }
+                var existing = Devices.FirstOrDefault(d => d.Fingerprint == device.Fingerprint);
+                if (existing is not null)
+                {
+                    existing.Alias = device.Alias;
+                    existing.DeviceModel = device.DeviceModel ?? Loc.Tr("Main.DeviceUnknown");
+                    existing.IpAddress = device.IpAddress;
+                    existing.DeviceType = device.DeviceType ?? DeviceType.Desktop;
+                    existing.Port = device.Port > 0 ? device.Port : 53317;
+                    existing.LastSeen = DateTime.UtcNow;
+                    return;
+                }
 
-            Devices.Add(new DeviceViewModel
-            {
-                Alias = device.Alias,
-                DeviceModel = device.DeviceModel ?? Loc.Tr("Main.DeviceUnknown"),
-                IpAddress = device.IpAddress,
-                DeviceType = device.DeviceType ?? DeviceType.Desktop,
-                Fingerprint = device.Fingerprint,
-                Port = device.Port > 0 ? device.Port : 53317,
-                LastSeen = DateTime.UtcNow,
+                Devices.Add(new DeviceViewModel
+                {
+                    Alias = device.Alias,
+                    DeviceModel = device.DeviceModel ?? Loc.Tr("Main.DeviceUnknown"),
+                    IpAddress = device.IpAddress,
+                    DeviceType = device.DeviceType ?? DeviceType.Desktop,
+                    Fingerprint = device.Fingerprint,
+                    Port = device.Port > 0 ? device.Port : 53317,
+                    LastSeen = DateTime.UtcNow,
+                });
+
+                StatusText.Text = Loc.Tr("Main.StatusDevicesFound", Devices.Count);
             });
-
-            StatusText.Text = Loc.Tr("Main.StatusDevicesFound", Devices.Count);
-        });
+        }
+        catch { }
     }
 
     private void OnDeviceSeen(object? sender, DeviceInfo device)
     {
-        Dispatcher.Invoke(() =>
+        try
         {
-            var existing = Devices.FirstOrDefault(d => d.Fingerprint == device.Fingerprint);
-            if (existing is not null)
-                existing.LastSeen = device.LastSeen;
-        });
+            Dispatcher.Invoke(() =>
+            {
+                var existing = Devices.FirstOrDefault(d => d.Fingerprint == device.Fingerprint);
+                if (existing is not null)
+                    existing.LastSeen = device.LastSeen;
+            });
+        }
+        catch { }
     }
 
     private void OnDeviceLost(object? sender, string fingerprint)
     {
-        Dispatcher.Invoke(() =>
+        try
         {
-            var existing = Devices.FirstOrDefault(d => d.Fingerprint == fingerprint);
-            if (existing is not null)
+            Dispatcher.Invoke(() =>
             {
-                Devices.Remove(existing);
-                if (_selectedDevice == existing)
-                    ClearSelection();
-            }
+                var existing = Devices.FirstOrDefault(d => d.Fingerprint == fingerprint);
+                if (existing is not null)
+                {
+                    Devices.Remove(existing);
+                    if (_selectedDevice == existing)
+                        ClearSelection();
+                }
 
-            StatusText.Text = Devices.Count > 0
-                ? Loc.Tr("Main.StatusDevicesFound", Devices.Count)
-                : Loc.Tr("Main.StatusReady");
-            UpdateSelectedDeviceText();
-        });
+                StatusText.Text = Devices.Count > 0
+                    ? Loc.Tr("Main.StatusDevicesFound", Devices.Count)
+                    : Loc.Tr("Main.StatusReady");
+                UpdateSelectedDeviceText();
+            });
+        }
+        catch { }
     }
 
     private void DeviceCard_Click(object sender, MouseButtonEventArgs e)
@@ -506,6 +528,8 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
             ? Loc.Tr("Main.TargetDevice", _selectedDevice.Alias)
             : Loc.Tr("Main.NoDeviceSelected");
         DeselectButton.Visibility = _selectedDevice is not null ? Visibility.Visible : Visibility.Collapsed;
+        SelectFilesButton.IsEnabled = _selectedDevice is not null;
+        SelectFolderButton.IsEnabled = _selectedDevice is not null;
     }
 
     private void DropZone_DragOver(object sender, DragEventArgs e)
@@ -628,7 +652,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
             Constants.DefaultApiBase);
         fileSender.ProgressChanged += (_, progress) =>
         {
-            Dispatcher.Invoke(() =>
+            Dispatcher.BeginInvoke(() =>
             {
                 transfer.Progress = progress;
                 transfer.SpeedText = $"{FormatBytes((long)fileSender.CurrentBytesPerSecond)}/s";
@@ -667,11 +691,14 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         transfer.CancelAction = () => cts.Cancel();
         _sendCancels[transfer] = cts;
 
+        var scanEnabled = ScanCheckBox.IsChecked == true;
+        var compressEnabled = CompressCheckBox.IsChecked == true;
+
         _ = Task.Run(async () =>
         {
             try
             {
-                if (ScanCheckBox.IsChecked == true)
+                if (scanEnabled)
                 {
                     foreach (var file in session.Files)
                     {
@@ -688,7 +715,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
                 }
 
                 using (fileSender)
-                    await fileSender.SendAsync(session, cts.Token, compress: CompressCheckBox.IsChecked == true);
+                    await fileSender.SendAsync(session, cts.Token, compress: compressEnabled);
             }
             catch (OperationCanceledException)
             {
@@ -894,29 +921,39 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
 
     private void OnUploadProgress(object? sender, UploadProgressEventArgs e)
     {
-        Dispatcher.Invoke(() =>
+        try
         {
-            if (_receiveTransfers.TryGetValue(e.SessionId, out var transfer))
+            Dispatcher.Invoke(() =>
             {
-                transfer.Progress = Math.Min(1.0, (double)e.BytesReceived / e.TotalBytes);
-                transfer.SpeedText = $"{FormatBytes((long)e.BytesPerSecond)}/s";
-                transfer.EtaText = FormatEta(e.TotalBytes - e.BytesReceived, e.BytesPerSecond);
-                transfer.StatusText = Loc.Tr("Transfer.Running");
-            }
-        });
+                if (_receiveTransfers.TryGetValue(e.SessionId, out var transfer))
+                {
+                    transfer.Progress = e.TotalBytes > 0
+                        ? Math.Min(1.0, (double)e.BytesReceived / e.TotalBytes)
+                        : 1.0;
+                    transfer.SpeedText = $"{FormatBytes((long)e.BytesPerSecond)}/s";
+                    transfer.EtaText = FormatEta(e.TotalBytes - e.BytesReceived, e.BytesPerSecond);
+                    transfer.StatusText = Loc.Tr("Transfer.Running");
+                }
+            });
+        }
+        catch { }
     }
 
     private void OnUploadCancelled(object? sender, UploadCancelledEventArgs e)
     {
-        Dispatcher.Invoke(() =>
+        try
         {
-            if (_receiveTransfers.Remove(e.SessionId, out var transfer))
+            Dispatcher.Invoke(() =>
             {
-                transfer.Status = TransferStatus.Cancelled;
-                transfer.StatusText = Loc.Tr("Transfer.Cancelled");
-                transfer.CanCancel = false;
-            }
-        });
+                if (_receiveTransfers.Remove(e.SessionId, out var transfer))
+                {
+                    transfer.Status = TransferStatus.Cancelled;
+                    transfer.StatusText = Loc.Tr("Transfer.Cancelled");
+                    transfer.CanCancel = false;
+                }
+            });
+        }
+        catch { }
     }
 
     private void CancelTransfer_Click(object sender, RoutedEventArgs e)

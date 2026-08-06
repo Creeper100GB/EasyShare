@@ -109,5 +109,6 @@
   "App.CrashTitle": "EasyShare - Unerwarteter Fehler",
   "App.CrashIntro": "In EasyShare ist ein unerwarteter Fehler aufgetreten. Bitte melden Sie diesen Vorfall mit den folgenden Details:",
   "App.CrashCopy": "Kopieren",
-  "App.CrashClose": "Schließen"
+  "App.CrashRestart": "Neu starten",
+  "App.CrashClose": "Fortsetzen"
 }

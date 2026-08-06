@@ -6,7 +6,6 @@
   xmlns:views="clr-namespace:EasyShare.App.Views"
   xmlns:loc="clr-namespace:EasyShare.App.Localization"
   xmlns:local="clr-namespace:EasyShare.App"
-  xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
   Title="{Binding [App.Title], Source={x:Static loc:Loc.Instance}}"
   Width="920" Height="660"
   MinWidth="720" MinHeight="520"
@@ -41,57 +40,20 @@
                        From="1" To="1.02" Duration="0:0:0.4" AutoReverse="True" RepeatBehavior="Forever"/>
     </Storyboard>
 
-    <Storyboard x:Key="ShimmerSweep">
-      <DoubleAnimation Storyboard.TargetName="ShimmerTranslate" Storyboard.TargetProperty="X"
-                       From="-90" To="1200" Duration="0:0:1.8" RepeatBehavior="Forever"/>
-    </Storyboard>
-
     <Style x:Key="VibrantProgressBar" TargetType="ProgressBar">
-      <Setter Property="Height" Value="18"/>
+      <Setter Property="Height" Value="14"/>
       <Setter Property="Minimum" Value="0"/>
       <Setter Property="Maximum" Value="1"/>
       <Setter Property="Template">
         <Setter.Value>
           <ControlTemplate TargetType="ProgressBar">
-            <Grid ClipToBounds="True">
-              <Border CornerRadius="9" Background="{DynamicResource ProgressBarTrack}"/>
-              <Border x:Name="PART_Indicator" CornerRadius="9"
-                      HorizontalAlignment="Left" ClipToBounds="True">
-                <Grid>
-                  <Border>
-                    <Border.Background>
-                      <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
-                        <GradientStop Color="{DynamicResource AccentGradient1Color}" Offset="0.0"/>
-                        <GradientStop Color="{DynamicResource AccentGradient2Color}" Offset="0.25"/>
-                        <GradientStop Color="{DynamicResource AccentGradient3Color}" Offset="0.5"/>
-                        <GradientStop Color="{DynamicResource AccentGradient4Color}" Offset="0.75"/>
-                        <GradientStop Color="{DynamicResource AccentGradient5Color}" Offset="1.0"/>
-                      </LinearGradientBrush>
-                    </Border.Background>
-                  </Border>
-                  <Border x:Name="Shimmer" Width="90" HorizontalAlignment="Left" Opacity="0.35">
-                    <Border.Background>
-                      <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
-                        <GradientStop Color="#FFFFFFFF" Offset="0"/>
-                        <GradientStop Color="#FFFFFFFF" Offset="0.45"/>
-                        <GradientStop Color="#00FFFFFF" Offset="1"/>
-                      </LinearGradientBrush>
-                    </Border.Background>
-                    <Border.RenderTransform>
-                      <TranslateTransform x:Name="ShimmerTranslate" X="-90"/>
-                    </Border.RenderTransform>
-                  </Border>
-                </Grid>
+            <Border CornerRadius="7" Background="{DynamicResource ProgressBarTrack}" ClipToBounds="True">
+              <Border x:Name="PART_Indicator" HorizontalAlignment="Left">
+                <Border.Background>
+                  <SolidColorBrush Color="{DynamicResource AccentGradient2Color}"/>
+                </Border.Background>
               </Border>
-            </Grid>
-            <ControlTemplate.Triggers>
-              <EventTrigger RoutedEvent="FrameworkElement.Loaded">
-                <BeginStoryboard Storyboard="{StaticResource ShimmerSweep}"/>
-              </EventTrigger>
-              <DataTrigger Binding="{Binding Value, RelativeSource={RelativeSource TemplatedParent}}" Value="1">
-                <Setter TargetName="Shimmer" Property="Opacity" Value="0"/>
-              </DataTrigger>
-            </ControlTemplate.Triggers>
+            </Border>
           </ControlTemplate>
         </Setter.Value>
       </Setter>
@@ -192,15 +154,16 @@
       <RowDefinition Height="*"/>
     </Grid.RowDefinitions>
 
-    <Grid Grid.Row="0">
-      <wpfui:TitleBar Title="{Binding [App.Title], Source={x:Static loc:Loc.Instance}}"/>
-      <StackPanel Orientation="Horizontal" HorizontalAlignment="Right"
-                  VerticalAlignment="Top" Margin="0,6,150,0"
-                  shell:WindowChrome.IsHitTestVisibleInChrome="True">
-        <Button x:Name="QrButton" Content="{Binding [Main.QrButton], Source={x:Static loc:Loc.Instance}}" Padding="10,4" Margin="0,0,4,0" Click="QrButton_Click" ToolTip="{Binding [Main.QrButtonTooltip], Source={x:Static loc:Loc.Instance}}"/>
-        <Button x:Name="SettingsButton" Content="{Binding [Main.SettingsButton], Source={x:Static loc:Loc.Instance}}" Padding="10,4" Click="SettingsButton_Click" ToolTip="{Binding [Main.SettingsButtonTooltip], Source={x:Static loc:Loc.Instance}}"/>
-      </StackPanel>
-    </Grid>
+      <Grid Grid.Row="0">
+        <wpfui:TitleBar Title="{Binding [App.Title], Source={x:Static loc:Loc.Instance}}">
+          <wpfui:TitleBar.Header>
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+              <Button x:Name="QrButton" Content="{Binding [Main.QrButton], Source={x:Static loc:Loc.Instance}}" Padding="10,4" Margin="0,0,4,0" Click="QrButton_Click" ToolTip="{Binding [Main.QrButtonTooltip], Source={x:Static loc:Loc.Instance}}"/>
+              <Button x:Name="SettingsButton" Content="{Binding [Main.SettingsButton], Source={x:Static loc:Loc.Instance}}" Padding="10,4" Click="SettingsButton_Click" ToolTip="{Binding [Main.SettingsButtonTooltip], Source={x:Static loc:Loc.Instance}}"/>
+            </StackPanel>
+          </wpfui:TitleBar.Header>
+        </wpfui:TitleBar>
+      </Grid>
 
     <Border Grid.Row="1" x:Name="UpdateBanner" Visibility="Collapsed"
             Background="{DynamicResource InfoBackground}" Padding="12,8" Margin="8,0,8,0" CornerRadius="6"
@@ -295,9 +258,9 @@
 
         <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="4,8">
           <Button x:Name="SelectFilesButton" Content="{Binding [Main.SelectFiles], Source={x:Static loc:Loc.Instance}}"
-                  Padding="16,6" Click="SelectFilesButton_Click"/>
+                  Padding="16,6" Click="SelectFilesButton_Click" IsEnabled="False"/>
           <Button x:Name="SelectFolderButton" Content="{Binding [Main.SelectFolder], Source={x:Static loc:Loc.Instance}}"
-                  Padding="16,6" Margin="8,0,0,0" Click="SelectFolderButton_Click"/>
+                  Padding="16,6" Margin="8,0,0,0" Click="SelectFolderButton_Click" IsEnabled="False"/>
           <CheckBox x:Name="CompressCheckBox" Margin="12,0,0,0" VerticalAlignment="Center" ToolTip="{Binding [Main.CompressTooltip], Source={x:Static loc:Loc.Instance}}">
             <CheckBox.Content>
               <StackPanel Orientation="Horizontal">

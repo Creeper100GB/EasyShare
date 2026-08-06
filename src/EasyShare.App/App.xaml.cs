@@ -43,10 +43,16 @@ public partial class App : Application
             {
                 var dialog = new Views.CrashDialog(ex.Exception);
                 dialog.ShowDialog();
+                if (dialog.RestartRequested)
+                {
+                    var exePath = Environment.ProcessPath;
+                    if (exePath is not null)
+                        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(exePath) { UseShellExecute = true });
+                    Shutdown(-1);
+                    return;
+                }
             }
-            catch
-            {
-            }
+            catch { }
             ex.Handled = true;
         };
 
