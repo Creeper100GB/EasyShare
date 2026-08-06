@@ -27,6 +27,8 @@ public class FileSender : IDisposable
     private long _lastProgressTicks;
 
     public double CurrentBytesPerSecond { get; private set; }
+    public long TotalBytes => _totalBytes;
+    public long BytesSent => _bytesSent;
 
     public event EventHandler<double>? ProgressChanged;
     public event EventHandler<TransferStatus>? StatusChanged;

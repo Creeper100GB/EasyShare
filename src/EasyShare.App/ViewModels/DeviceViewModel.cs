@@ -13,6 +13,9 @@ public class DeviceViewModel : INotifyPropertyChanged
     private string _fingerprint = string.Empty;
     private int _port = 53317;
     private bool _isSelected;
+    private DateTime _lastSeen = DateTime.MinValue;
+    private bool _isOnline;
+    private string _lastSeenText = string.Empty;
 
     public string Alias
     {
@@ -54,6 +57,24 @@ public class DeviceViewModel : INotifyPropertyChanged
     {
         get => _isSelected;
         set => SetProperty(ref _isSelected, value);
+    }
+
+    public DateTime LastSeen
+    {
+        get => _lastSeen;
+        set => SetProperty(ref _lastSeen, value);
+    }
+
+    public bool IsOnline
+    {
+        get => _isOnline;
+        set => SetProperty(ref _isOnline, value);
+    }
+
+    public string LastSeenText
+    {
+        get => _lastSeenText;
+        set => SetProperty(ref _lastSeenText, value);
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;

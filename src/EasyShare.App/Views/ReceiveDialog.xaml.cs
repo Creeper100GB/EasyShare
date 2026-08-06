@@ -9,6 +9,9 @@ public partial class ReceiveDialog : Wpf.Ui.Controls.FluentWindow
     public bool Accepted { get; private set; }
     public bool TrustDevice { get; private set; }
 
+    private readonly System.Windows.Threading.DispatcherTimer _countdownTimer;
+    private int _countdown = 30;
+
     public ReceiveDialog(string senderAlias, List<FileEntry> files, string fingerprint)
     {
         InitializeComponent();
@@ -26,10 +29,31 @@ public partial class ReceiveDialog : Wpf.Ui.Controls.FluentWindow
         TotalSizeText.Text = Loc.Tr("Receive.Total", FormatSize(totalSize));
 
         Tag = fingerprint;
+
+        CountdownText.Text = Loc.Tr("Receive.Countdown", _countdown);
+        _countdownTimer = new System.Windows.Threading.DispatcherTimer
+        {
+            Interval = TimeSpan.FromSeconds(1),
+        };
+        _countdownTimer.Tick += OnCountdownTick;
+        _countdownTimer.Start();
+    }
+
+    private void OnCountdownTick(object? sender, EventArgs e)
+    {
+        _countdown--;
+        if (_countdown <= 0)
+        {
+            _countdownTimer.Stop();
+            Close();
+            return;
+        }
+        CountdownText.Text = Loc.Tr("Receive.Countdown", _countdown);
     }
 
     private void Accept_Click(object sender, RoutedEventArgs e)
     {
+        _countdownTimer.Stop();
         Accepted = true;
         TrustDevice = TrustCheckBox.IsChecked == true;
         Close();
@@ -37,6 +61,7 @@ public partial class ReceiveDialog : Wpf.Ui.Controls.FluentWindow
 
     private void Reject_Click(object sender, RoutedEventArgs e)
     {
+        _countdownTimer.Stop();
         Accepted = false;
         Close();
     }

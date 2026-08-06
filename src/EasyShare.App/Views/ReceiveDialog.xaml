@@ -16,6 +16,7 @@
       <RowDefinition Height="Auto"/>
       <RowDefinition Height="Auto"/>
       <RowDefinition Height="Auto"/>
+      <RowDefinition Height="Auto"/>
     </Grid.RowDefinitions>
 
     <wpfui:TitleBar Grid.Row="0" Title="{Binding [Receive.Title], Source={x:Static loc:Loc.Instance}}"/>
@@ -35,7 +36,10 @@
               Content="{Binding [Receive.Trust], Source={x:Static loc:Loc.Instance}}"
               Margin="0,12,0,0" VerticalAlignment="Center"/>
 
-    <StackPanel Grid.Row="5" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
+    <TextBlock Grid.Row="5" x:Name="CountdownText" FontSize="11"
+               Foreground="{DynamicResource TextSecondary}" Margin="0,12,0,0"/>
+
+    <StackPanel Grid.Row="6" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
       <Button x:Name="RejectButton"
               Content="{Binding [Receive.Reject], Source={x:Static loc:Loc.Instance}}"
               Padding="16,6" Margin="0,0,8,0" Click="Reject_Click"/>

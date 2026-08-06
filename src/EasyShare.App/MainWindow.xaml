@@ -34,6 +34,18 @@
 
     <BooleanToVisibilityConverter x:Key="BoolToVis"/>
 
+    <Storyboard x:Key="DropZonePulse">
+      <DoubleAnimation Storyboard.TargetName="DropZoneHighlightScale" Storyboard.TargetProperty="ScaleX"
+                       From="1" To="1.02" Duration="0:0:0.4" AutoReverse="True" RepeatBehavior="Forever"/>
+      <DoubleAnimation Storyboard.TargetName="DropZoneHighlightScale" Storyboard.TargetProperty="ScaleY"
+                       From="1" To="1.02" Duration="0:0:0.4" AutoReverse="True" RepeatBehavior="Forever"/>
+    </Storyboard>
+
+    <Storyboard x:Key="ShimmerSweep">
+      <DoubleAnimation Storyboard.TargetName="ShimmerTranslate" Storyboard.TargetProperty="X"
+                       From="-90" To="1200" Duration="0:0:1.8" RepeatBehavior="Forever"/>
+    </Storyboard>
+
     <Style x:Key="VibrantProgressBar" TargetType="ProgressBar">
       <Setter Property="Height" Value="18"/>
       <Setter Property="Minimum" Value="0"/>
@@ -45,17 +57,41 @@
               <Border CornerRadius="9" Background="{DynamicResource ProgressBarTrack}"/>
               <Border x:Name="PART_Indicator" CornerRadius="9"
                       HorizontalAlignment="Left" ClipToBounds="True">
-                <Border.Background>
-                  <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
-                    <GradientStop Color="{DynamicResource AccentGradient1Color}" Offset="0.0"/>
-                    <GradientStop Color="{DynamicResource AccentGradient2Color}" Offset="0.25"/>
-                    <GradientStop Color="{DynamicResource AccentGradient3Color}" Offset="0.5"/>
-                    <GradientStop Color="{DynamicResource AccentGradient4Color}" Offset="0.75"/>
-                    <GradientStop Color="{DynamicResource AccentGradient5Color}" Offset="1.0"/>
-                  </LinearGradientBrush>
-                </Border.Background>
+                <Grid>
+                  <Border>
+                    <Border.Background>
+                      <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+                        <GradientStop Color="{DynamicResource AccentGradient1Color}" Offset="0.0"/>
+                        <GradientStop Color="{DynamicResource AccentGradient2Color}" Offset="0.25"/>
+                        <GradientStop Color="{DynamicResource AccentGradient3Color}" Offset="0.5"/>
+                        <GradientStop Color="{DynamicResource AccentGradient4Color}" Offset="0.75"/>
+                        <GradientStop Color="{DynamicResource AccentGradient5Color}" Offset="1.0"/>
+                      </LinearGradientBrush>
+                    </Border.Background>
+                  </Border>
+                  <Border x:Name="Shimmer" Width="90" HorizontalAlignment="Left" Opacity="0.35">
+                    <Border.Background>
+                      <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+                        <GradientStop Color="#FFFFFFFF" Offset="0"/>
+                        <GradientStop Color="#FFFFFFFF" Offset="0.45"/>
+                        <GradientStop Color="#00FFFFFF" Offset="1"/>
+                      </LinearGradientBrush>
+                    </Border.Background>
+                    <Border.RenderTransform>
+                      <TranslateTransform x:Name="ShimmerTranslate" X="-90"/>
+                    </Border.RenderTransform>
+                  </Border>
+                </Grid>
               </Border>
             </Grid>
+            <ControlTemplate.Triggers>
+              <EventTrigger RoutedEvent="FrameworkElement.Loaded">
+                <BeginStoryboard Storyboard="{StaticResource ShimmerSweep}"/>
+              </EventTrigger>
+              <DataTrigger Binding="{Binding Value, RelativeSource={RelativeSource TemplatedParent}}" Value="1">
+                <Setter TargetName="Shimmer" Property="Opacity" Value="0"/>
+              </DataTrigger>
+            </ControlTemplate.Triggers>
           </ControlTemplate>
         </Setter.Value>
       </Setter>
@@ -84,6 +120,19 @@
                        FontSize="16" VerticalAlignment="Center" Margin="0,0,8,0"/>
             <TextBlock Text="{Binding Alias}" FontWeight="SemiBold" FontSize="14"
                        VerticalAlignment="Center"/>
+            <Ellipse Width="8" Height="8" Margin="8,0,0,0" VerticalAlignment="Center"
+                     Fill="{DynamicResource TextHint}" ToolTip="{Binding LastSeenText}">
+              <Ellipse.Style>
+                <Style TargetType="Ellipse">
+                  <Setter Property="Fill" Value="{DynamicResource TextHint}"/>
+                  <Style.Triggers>
+                    <DataTrigger Binding="{Binding IsOnline}" Value="True">
+                      <Setter Property="Fill" Value="{DynamicResource SuccessColor}"/>
+                    </DataTrigger>
+                  </Style.Triggers>
+                </Style>
+              </Ellipse.Style>
+            </Ellipse>
             <TextBlock Text="&#x2713;" FontSize="12" Foreground="{DynamicResource SuccessColor}"
                        Visibility="{Binding IsSelected, Converter={StaticResource BoolToVis}}"
                        VerticalAlignment="Center"/>
@@ -111,6 +160,7 @@
               <TextBlock Text="{Binding Progress, StringFormat=\{0:P0\}}" FontSize="11" 
                          FontWeight="SemiBold" Foreground="{DynamicResource AccentGradient2}" Margin="0,0,10,0"/>
               <TextBlock Text="{Binding SpeedText}" FontSize="11" Foreground="Gray" Margin="0,0,10,0"/>
+              <TextBlock Text="{Binding EtaText}" FontSize="11" Foreground="Gray" Margin="0,0,10,0"/>
               <TextBlock Text="{Binding StatusText}" FontSize="11"
                          Foreground="{Binding Status, Converter={StaticResource StatusToColor}}"/>
             </StackPanel>
@@ -123,8 +173,9 @@
       </Border>
     </DataTemplate>
 
-    <DataTemplate x:Key="HistoryTemplate">
-      <Border Background="transparent" CornerRadius="4" Padding="8,4" Margin="0,0,0,2">
+<DataTemplate x:Key="HistoryTemplate">
+      <Border Background="transparent" CornerRadius="4" Padding="8,4" Margin="0,0,0,2"
+              MouseDown="HistoryItem_MouseDown" ToolTip="{Binding [Main.HistoryOpen], Source={x:Static loc:Loc.Instance}}">
         <StackPanel Orientation="Horizontal">
           <TextBlock Text="{Binding Direction}" FontSize="11" Foreground="Gray" Width="16"/>
           <TextBlock Text="{Binding FileName}" FontSize="11" TextTrimming="CharacterEllipsis" Margin="4,0"/>
@@ -226,7 +277,12 @@
                 DragEnter="DropZone_DragEnter" DragLeave="DropZone_DragLeave" Margin="4">
           <Grid>
             <Border x:Name="DropZoneHighlight" BorderBrush="{DynamicResource AccentPrimary}"
-                    BorderThickness="3" CornerRadius="12" Visibility="Collapsed" IsHitTestVisible="False"/>
+                    BorderThickness="3" CornerRadius="12" Visibility="Collapsed" IsHitTestVisible="False"
+                    RenderTransformOrigin="0.5,0.5">
+              <Border.RenderTransform>
+                <ScaleTransform x:Name="DropZoneHighlightScale" ScaleX="1" ScaleY="1"/>
+              </Border.RenderTransform>
+            </Border>
             <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
               <TextBlock Text="&#x1F4E4;" FontSize="48" HorizontalAlignment="Center" Margin="0,0,0,12"/>
               <TextBlock Text="{Binding [Main.DropZone], Source={x:Static loc:Loc.Instance}}" FontSize="20" FontWeight="SemiBold"

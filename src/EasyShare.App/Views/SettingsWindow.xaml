@@ -15,61 +15,65 @@
 
     <wpfui:TitleBar Grid.Row="0" Title="{Binding [Settings.Title], Source={x:Static loc:Loc.Instance}}"/>
 
-    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Margin="0,8,0,0">
-      <StackPanel>
-        <TextBlock Text="{Binding [Settings.DeviceHeader], Source={x:Static loc:Loc.Instance}}" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,8"/>
-        <StackPanel Margin="8,0,0,16">
-          <TextBlock Text="{Binding [Settings.DeviceName], Source={x:Static loc:Loc.Instance}}" FontSize="12" Foreground="Gray"/>
-          <TextBox x:Name="AliasTextBox" Margin="0,4,0,12"/>
-          <TextBlock Text="{Binding [Settings.Port], Source={x:Static loc:Loc.Instance}}" FontSize="12" Foreground="Gray"/>
-          <TextBox x:Name="PortBox" Text="53317" Margin="0,4,0,12"
-                   PreviewTextInput="PortBox_PreviewTextInput" TextChanged="PortBox_TextChanged"/>
-        </StackPanel>
-
-        <Separator/>
-
-        <TextBlock Text="{Binding [Settings.TransferHeader], Source={x:Static loc:Loc.Instance}}" FontSize="14" FontWeight="SemiBold" Margin="0,8,0,8"/>
-        <StackPanel Margin="8,0,0,16">
-          <TextBlock Text="{Binding [Settings.SavePath], Source={x:Static loc:Loc.Instance}}" FontSize="12" Foreground="Gray"/>
-          <Grid Margin="0,4,0,12">
-            <Grid.ColumnDefinitions>
-              <ColumnDefinition Width="*"/>
-              <ColumnDefinition Width="Auto"/>
-            </Grid.ColumnDefinitions>
-            <TextBox x:Name="SavePathTextBox" Grid.Column="0" Margin="0,0,4,0"/>
-            <Button Grid.Column="1" Content="..." Padding="8,0" Click="BrowseSavePath_Click"/>
-          </Grid>
-          <CheckBox x:Name="AutoAcceptCheckBox" Content="{Binding [Settings.AutoAccept], Source={x:Static loc:Loc.Instance}}" Margin="0,0,0,12"/>
-        </StackPanel>
-
-        <Separator/>
-
-        <TextBlock Text="{Binding [Settings.AppearanceHeader], Source={x:Static loc:Loc.Instance}}" FontSize="14" FontWeight="SemiBold" Margin="0,8,0,8"/>
-        <StackPanel Margin="8,0,0,16">
-          <TextBlock Text="{Binding [Settings.Theme], Source={x:Static loc:Loc.Instance}}" FontSize="12" Foreground="Gray"/>
-          <ComboBox x:Name="ThemeComboBox" Margin="0,4,0,12" SelectionChanged="ThemeComboBox_SelectionChanged">
-            <ComboBoxItem Content="{Binding [Settings.ThemeLight], Source={x:Static loc:Loc.Instance}}"/>
-            <ComboBoxItem Content="{Binding [Settings.ThemeDark], Source={x:Static loc:Loc.Instance}}"/>
-            <ComboBoxItem Content="{Binding [Settings.ThemeAuto], Source={x:Static loc:Loc.Instance}}" IsSelected="True"/>
-          </ComboBox>
-          <TextBlock Text="{Binding [Settings.Language], Source={x:Static loc:Loc.Instance}}" FontSize="12" Foreground="Gray"/>
-          <ComboBox x:Name="LanguageComboBox" Margin="0,4,0,12" SelectionChanged="LanguageComboBox_SelectionChanged">
-            <ComboBoxItem Content="{Binding [Settings.LanguageDe], Source={x:Static loc:Loc.Instance}}"/>
-            <ComboBoxItem Content="{Binding [Settings.LanguageEn], Source={x:Static loc:Loc.Instance}}"/>
-          </ComboBox>
-        </StackPanel>
-
-        <Separator/>
-
-        <TextBlock Text="{Binding [Settings.SystemHeader], Source={x:Static loc:Loc.Instance}}" FontSize="14" FontWeight="SemiBold" Margin="0,8,0,8"/>
-        <StackPanel Margin="8,0,0,16">
-          <CheckBox x:Name="AutoStartCheckBox" Content="{Binding [Settings.AutoStart], Source={x:Static loc:Loc.Instance}}" Margin="0,0,0,12"/>
-          <StackPanel Orientation="Horizontal">
-            <Button x:Name="ContextMenuButton" Padding="12,6" Click="ContextMenuButton_Click"/>
+    <TabControl Grid.Row="1" Margin="0,8,0,0">
+      <TabItem Header="{Binding [Settings.DeviceHeader], Source={x:Static loc:Loc.Instance}}">
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+          <StackPanel Margin="8,12,8,8">
+            <TextBlock Text="{Binding [Settings.DeviceName], Source={x:Static loc:Loc.Instance}}" FontSize="12" Foreground="Gray"/>
+            <TextBox x:Name="AliasTextBox" Margin="0,4,0,12"/>
+            <TextBlock Text="{Binding [Settings.Port], Source={x:Static loc:Loc.Instance}}" FontSize="12" Foreground="Gray"/>
+            <TextBox x:Name="PortBox" Text="53317" Margin="0,4,0,12"
+                     PreviewTextInput="PortBox_PreviewTextInput" TextChanged="PortBox_TextChanged"/>
           </StackPanel>
-        </StackPanel>
-      </StackPanel>
-    </ScrollViewer>
+        </ScrollViewer>
+      </TabItem>
+
+      <TabItem Header="{Binding [Settings.TransferHeader], Source={x:Static loc:Loc.Instance}}">
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+          <StackPanel Margin="8,12,8,8">
+            <TextBlock Text="{Binding [Settings.SavePath], Source={x:Static loc:Loc.Instance}}" FontSize="12" Foreground="Gray"/>
+            <Grid Margin="0,4,0,12">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+              </Grid.ColumnDefinitions>
+              <TextBox x:Name="SavePathTextBox" Grid.Column="0" Margin="0,0,4,0"/>
+              <Button Grid.Column="1" Content="..." Padding="8,0" Click="BrowseSavePath_Click"/>
+            </Grid>
+            <CheckBox x:Name="AutoAcceptCheckBox" Content="{Binding [Settings.AutoAccept], Source={x:Static loc:Loc.Instance}}" Margin="0,0,0,12"/>
+          </StackPanel>
+        </ScrollViewer>
+      </TabItem>
+
+      <TabItem Header="{Binding [Settings.AppearanceHeader], Source={x:Static loc:Loc.Instance}}">
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+          <StackPanel Margin="8,12,8,8">
+            <TextBlock Text="{Binding [Settings.Theme], Source={x:Static loc:Loc.Instance}}" FontSize="12" Foreground="Gray"/>
+            <ComboBox x:Name="ThemeComboBox" Margin="0,4,0,12" SelectionChanged="ThemeComboBox_SelectionChanged">
+              <ComboBoxItem Content="{Binding [Settings.ThemeLight], Source={x:Static loc:Loc.Instance}}"/>
+              <ComboBoxItem Content="{Binding [Settings.ThemeDark], Source={x:Static loc:Loc.Instance}}"/>
+              <ComboBoxItem Content="{Binding [Settings.ThemeAuto], Source={x:Static loc:Loc.Instance}}" IsSelected="True"/>
+            </ComboBox>
+            <TextBlock Text="{Binding [Settings.Language], Source={x:Static loc:Loc.Instance}}" FontSize="12" Foreground="Gray"/>
+            <ComboBox x:Name="LanguageComboBox" Margin="0,4,0,12" SelectionChanged="LanguageComboBox_SelectionChanged">
+              <ComboBoxItem Content="{Binding [Settings.LanguageDe], Source={x:Static loc:Loc.Instance}}"/>
+              <ComboBoxItem Content="{Binding [Settings.LanguageEn], Source={x:Static loc:Loc.Instance}}"/>
+            </ComboBox>
+          </StackPanel>
+        </ScrollViewer>
+      </TabItem>
+
+      <TabItem Header="{Binding [Settings.SystemHeader], Source={x:Static loc:Loc.Instance}}">
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+          <StackPanel Margin="8,12,8,8">
+            <CheckBox x:Name="AutoStartCheckBox" Content="{Binding [Settings.AutoStart], Source={x:Static loc:Loc.Instance}}" Margin="0,0,0,12"/>
+            <StackPanel Orientation="Horizontal">
+              <Button x:Name="ContextMenuButton" Padding="12,6" Click="ContextMenuButton_Click"/>
+            </StackPanel>
+          </StackPanel>
+        </ScrollViewer>
+      </TabItem>
+    </TabControl>
 
     <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
       <Button Content="{Binding [Settings.Close], Source={x:Static loc:Loc.Instance}}" Padding="16,6" Click="CloseButton_Click"/>

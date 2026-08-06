@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.IO;
@@ -59,6 +60,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
     private DeviceViewModel? _selectedDevice;
     private readonly List<string> _pendingFiles = new();
     private readonly AmsiScanner _amsiScanner = new();
+    private readonly System.Windows.Threading.DispatcherTimer _deviceStatusTimer;
 
     public MainWindow()
     {
@@ -83,8 +85,35 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         SetupTrayIcon();
         StartServices();
         ApplyTheme(_config.Theme);
+
+        _deviceStatusTimer = new System.Windows.Threading.DispatcherTimer
+        {
+            Interval = TimeSpan.FromSeconds(5),
+        };
+        _deviceStatusTimer.Tick += (_, _) => RefreshDeviceStatus();
+        _deviceStatusTimer.Start();
+
         CheckForUpdatesAsync();
         ConsumeShareArgs();
+    }
+
+    private void RefreshDeviceStatus()
+    {
+        var now = DateTime.UtcNow;
+        foreach (var device in Devices)
+        {
+            var age = now - device.LastSeen;
+            device.IsOnline = age < TimeSpan.FromSeconds(30);
+            device.LastSeenText = FormatLastSeen(age);
+        }
+    }
+
+    private static string FormatLastSeen(TimeSpan age)
+    {
+        if (age < TimeSpan.FromSeconds(30)) return Loc.Tr("Main.JustNow");
+        if (age < TimeSpan.FromMinutes(1)) return Loc.Tr("Main.SeenSeconds", Math.Max(1, (int)age.TotalSeconds));
+        if (age < TimeSpan.FromHours(1)) return Loc.Tr("Main.SeenMinutes", (int)age.TotalMinutes);
+        return Loc.Tr("Main.SeenHours", (int)age.TotalHours);
     }
 
     private void ConsumeShareArgs()
@@ -170,6 +199,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         _server = new LocalSendServer(_certificate);
 
         _discovery.DeviceFound += OnDeviceFound;
+        _discovery.DeviceSeen += OnDeviceSeen;
         _discovery.DeviceLost += OnDeviceLost;
         _server.UploadRequested += OnUploadRequested;
         _server.UploadProgress += OnUploadProgress;
@@ -368,8 +398,17 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
     {
         Dispatcher.Invoke(() =>
         {
-            if (Devices.Any(d => d.Fingerprint == device.Fingerprint))
+            var existing = Devices.FirstOrDefault(d => d.Fingerprint == device.Fingerprint);
+            if (existing is not null)
+            {
+                existing.Alias = device.Alias;
+                existing.DeviceModel = device.DeviceModel ?? Loc.Tr("Main.DeviceUnknown");
+                existing.IpAddress = device.IpAddress;
+                existing.DeviceType = device.DeviceType ?? DeviceType.Desktop;
+                existing.Port = device.Port > 0 ? device.Port : 53317;
+                existing.LastSeen = DateTime.UtcNow;
                 return;
+            }
 
             Devices.Add(new DeviceViewModel
             {
@@ -379,9 +418,20 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
                 DeviceType = device.DeviceType ?? DeviceType.Desktop,
                 Fingerprint = device.Fingerprint,
                 Port = device.Port > 0 ? device.Port : 53317,
+                LastSeen = DateTime.UtcNow,
             });
 
             StatusText.Text = Loc.Tr("Main.StatusDevicesFound", Devices.Count);
+        });
+    }
+
+    private void OnDeviceSeen(object? sender, DeviceInfo device)
+    {
+        Dispatcher.Invoke(() =>
+        {
+            var existing = Devices.FirstOrDefault(d => d.Fingerprint == device.Fingerprint);
+            if (existing is not null)
+                existing.LastSeen = device.LastSeen;
         });
     }
 
@@ -470,16 +520,23 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
     {
         if (!e.Data.GetDataPresent(DataFormats.FileDrop)) return;
         DropZoneHighlight.Visibility = Visibility.Visible;
+        ((System.Windows.Media.Animation.Storyboard)FindResource("DropZonePulse")).Begin(this);
     }
 
     private void DropZone_DragLeave(object sender, DragEventArgs e)
     {
         DropZoneHighlight.Visibility = Visibility.Collapsed;
+        ((System.Windows.Media.Animation.Storyboard)FindResource("DropZonePulse")).Stop(this);
+        DropZoneHighlightScale.ScaleX = 1;
+        DropZoneHighlightScale.ScaleY = 1;
     }
 
     private void DropZone_Drop(object sender, DragEventArgs e)
     {
         DropZoneHighlight.Visibility = Visibility.Collapsed;
+        ((System.Windows.Media.Animation.Storyboard)FindResource("DropZonePulse")).Stop(this);
+        DropZoneHighlightScale.ScaleX = 1;
+        DropZoneHighlightScale.ScaleY = 1;
         if (e.Data.GetData(DataFormats.FileDrop) is string[] files && files.Length > 0)
         {
             if (_selectedDevice is null)
@@ -555,10 +612,13 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
             {
                 transfer.Progress = progress;
                 transfer.SpeedText = $"{FormatBytes((long)fileSender.CurrentBytesPerSecond)}/s";
+                transfer.EtaText = FormatEta(fileSender.TotalBytes - fileSender.BytesSent, fileSender.CurrentBytesPerSecond);
                 transfer.Status = TransferStatus.Active;
                 transfer.StatusText = Loc.Tr("Transfer.Running");
             });
         };
+
+        var sendHistoryPath = BuildHistoryPath(session.Files);
 
         fileSender.StatusChanged += (_, status) =>
         {
@@ -579,7 +639,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
                     : Loc.Tr("Main.StatusTransfer", transfer.StatusText);
 
                 if (status == TransferStatus.Completed)
-                    History.Insert(0, new HistoryEntry { FileName = transfer.FileName, Direction = "→", Timestamp = DateTime.Now });
+                    History.Insert(0, new HistoryEntry { FileName = transfer.FileName, Direction = "→", Timestamp = DateTime.Now, Path = sendHistoryPath });
             });
         };
 
@@ -760,7 +820,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
                     var extractDir = Path.Combine(Path.GetDirectoryName(e.SavePath)!, Path.GetFileNameWithoutExtension(e.SavePath));
                     ExtractZipSafely(e.SavePath, extractDir);
                     File.Delete(e.SavePath);
-                    History.Insert(0, new HistoryEntry { FileName = Loc.Tr("Transfer.ExtractedFiles", e.OriginalFileCount, Path.GetFileName(extractDir)), Direction = "←", Timestamp = DateTime.Now });
+                    History.Insert(0, new HistoryEntry { FileName = Loc.Tr("Transfer.ExtractedFiles", e.OriginalFileCount, Path.GetFileName(extractDir)), Direction = "←", Timestamp = DateTime.Now, Path = extractDir });
                 }
                 catch (Exception ex)
                 {
@@ -770,7 +830,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
             }
             else
             {
-                History.Insert(0, new HistoryEntry { FileName = e.FileName, Direction = "←", Timestamp = DateTime.Now });
+                History.Insert(0, new HistoryEntry { FileName = e.FileName, Direction = "←", Timestamp = DateTime.Now, Path = e.SavePath });
             }
         });
     }
@@ -818,9 +878,9 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         {
             if (_receiveTransfers.TryGetValue(e.SessionId, out var transfer))
             {
-                if (e.TotalBytes > 0)
-                    transfer.Progress = Math.Min(1.0, (double)e.BytesReceived / e.TotalBytes);
+                transfer.Progress = Math.Min(1.0, (double)e.BytesReceived / e.TotalBytes);
                 transfer.SpeedText = $"{FormatBytes((long)e.BytesPerSecond)}/s";
+                transfer.EtaText = FormatEta(e.TotalBytes - e.BytesReceived, e.BytesPerSecond);
                 transfer.StatusText = Loc.Tr("Transfer.Running");
             }
         });
@@ -915,6 +975,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         _trayIcon?.Dispose();
         _trayIcon = null;
         _discovery?.DeviceFound -= OnDeviceFound;
+        _discovery?.DeviceSeen -= OnDeviceSeen;
         _discovery?.DeviceLost -= OnDeviceLost;
         _server?.UploadRequested -= OnUploadRequested;
         _server?.UploadProgress -= OnUploadProgress;
@@ -974,6 +1035,35 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
             }
         });
     }
+    private static string BuildHistoryPath(List<FileEntry> files)
+    {
+        var localFiles = files.Where(f => f.LocalFilePath is not null).Select(f => f.LocalFilePath!).ToList();
+        if (localFiles.Count == 1) return localFiles[0];
+        if (localFiles.Count > 1) return Path.GetDirectoryName(localFiles[0]) ?? "";
+        return "";
+    }
+
+    private void HistoryItem_MouseDown(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is FrameworkElement fe && fe.DataContext is HistoryEntry entry && !string.IsNullOrEmpty(entry.Path))
+        {
+            try
+            {
+                if (Directory.Exists(entry.Path))
+                {
+                    Process.Start(new ProcessStartInfo("explorer.exe", $"\"{entry.Path}\"") { UseShellExecute = true });
+                }
+                else if (File.Exists(entry.Path))
+                {
+                    Process.Start(new ProcessStartInfo(entry.Path) { UseShellExecute = true });
+                }
+            }
+            catch
+            {
+            }
+        }
+    }
+
     private static string FormatBytes(long bytes)
     {
         var gb = bytes / 1_000_000_000.0;
@@ -984,6 +1074,16 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         if (kb >= 1) return $"{kb:F1} KB";
         return $"{bytes:F0} B";
     }
+
+    private static string FormatEta(long remainingBytes, double bytesPerSecond)
+    {
+        if (remainingBytes <= 0 || bytesPerSecond <= 0) return string.Empty;
+        var seconds = (long)(remainingBytes / bytesPerSecond);
+        if (seconds <= 0) return string.Empty;
+        if (seconds >= 3600) return $"{seconds / 3600}h {seconds % 3600 / 60}m";
+        if (seconds >= 60) return $"{seconds / 60}m {seconds % 60}s";
+        return $"{seconds}s";
+    }
 }
 
 public class HistoryEntry
@@ -991,6 +1091,7 @@ public class HistoryEntry
     public string FileName { get; set; } = "";
     public string Direction { get; set; } = "";
     public DateTime Timestamp { get; set; }
+    public string Path { get; set; } = "";
 }
 
 internal static class NativeMethods

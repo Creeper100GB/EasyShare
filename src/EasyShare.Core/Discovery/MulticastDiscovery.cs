@@ -23,6 +23,7 @@ public class MulticastDiscovery : IDisposable
     private readonly record struct KnownDevice(DateTime LastSeen, string Signature);
 
     public event EventHandler<DeviceInfo>? DeviceFound;
+    public event EventHandler<DeviceInfo>? DeviceSeen;
     public event EventHandler<string>? DeviceLost;
 
     public MulticastDiscovery(string multicastAddress, int port)
@@ -139,18 +140,7 @@ public class MulticastDiscovery : IDisposable
 
                 var now = DateTime.UtcNow;
                 var signature = $"{announcement.Alias}|{announcement.Port}|{announcement.Version}|{announcement.DeviceModel}|{announcement.DeviceType}|{announcement.Protocol}|{announcement.Download}|{result.RemoteEndPoint.Address}";
-                if (_knownDevices.TryGetValue(announcement.Fingerprint, out var existing))
-                {
-                    if (existing.Signature == signature)
-                    {
-                        _knownDevices[announcement.Fingerprint] = existing with { LastSeen = now };
-                        continue;
-                    }
-                }
-
-                _knownDevices[announcement.Fingerprint] = new KnownDevice(now, signature);
-
-                DeviceFound?.Invoke(this, new DeviceInfo
+                var info = new DeviceInfo
                 {
                     Alias = announcement.Alias,
                     Version = announcement.Version,
@@ -162,7 +152,30 @@ public class MulticastDiscovery : IDisposable
                     Download = announcement.Download,
                     IpAddress = result.RemoteEndPoint.Address.ToString(),
                     LastSeen = now,
-                });
+                };
+
+                var isNewOrChanged = false;
+                if (_knownDevices.TryGetValue(announcement.Fingerprint, out var existing))
+                {
+                    if (existing.Signature != signature)
+                    {
+                        _knownDevices[announcement.Fingerprint] = new KnownDevice(now, signature);
+                        isNewOrChanged = true;
+                    }
+                    else
+                    {
+                        _knownDevices[announcement.Fingerprint] = existing with { LastSeen = now };
+                    }
+                }
+                else
+                {
+                    _knownDevices[announcement.Fingerprint] = new KnownDevice(now, signature);
+                    isNewOrChanged = true;
+                }
+
+                DeviceSeen?.Invoke(this, info);
+                if (isNewOrChanged)
+                    DeviceFound?.Invoke(this, info);
             }
             catch (OperationCanceledException)
             {
