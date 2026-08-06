@@ -22,8 +22,8 @@
 
     <TextBlock Grid.Row="1" x:Name="SenderText" FontSize="16" FontWeight="SemiBold" Margin="0,12,0,4"/>
 
-    <Border Grid.Row="2" Background="#1a1a1a" CornerRadius="6" Padding="12" Margin="0,8,0,0"
-            BorderBrush="#333" BorderThickness="1" MaxHeight="180">
+    <Border Grid.Row="2" Background="{DynamicResource SurfaceElevatedAlt}" CornerRadius="6" Padding="12" Margin="0,8,0,0"
+            BorderBrush="{DynamicResource BorderColor}" BorderThickness="1" MaxHeight="180">
       <ScrollViewer VerticalScrollBarVisibility="Auto">
         <ItemsControl x:Name="FileList"/>
       </ScrollViewer>

@@ -7,6 +7,7 @@
   <Application.Resources>
     <ResourceDictionary>
       <ResourceDictionary.MergedDictionaries>
+        <ResourceDictionary Source="Themes/Dark.xaml" />
         <wpfui:ThemesDictionary Theme="Dark" />
         <wpfui:ControlsDictionary />
       </ResourceDictionary.MergedDictionaries>

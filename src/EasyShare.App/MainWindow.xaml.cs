@@ -221,23 +221,36 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
     public void ApplyTheme(Theme theme)
     {
         _config.Theme = theme;
-        var appTheme = theme switch
+        var isDark = theme switch
         {
-            Theme.Light => Wpf.Ui.Appearance.ApplicationTheme.Light,
-            Theme.Auto => Wpf.Ui.Appearance.ApplicationThemeManager.GetSystemTheme() == Wpf.Ui.Appearance.SystemTheme.Dark
-                ? Wpf.Ui.Appearance.ApplicationTheme.Dark
-                : Wpf.Ui.Appearance.ApplicationTheme.Light,
-            _ => Wpf.Ui.Appearance.ApplicationTheme.Dark,
+            Theme.Light => false,
+            Theme.Dark => true,
+            _ => Wpf.Ui.Appearance.ApplicationThemeManager.GetSystemTheme() == Wpf.Ui.Appearance.SystemTheme.Dark,
         };
 
         try
         {
-            Wpf.Ui.Appearance.ApplicationThemeManager.Apply(appTheme, Wpf.Ui.Controls.WindowBackdropType.None, updateAccent: false);
+            SwapAppThemeDictionary(isDark);
+            Wpf.Ui.Appearance.ApplicationThemeManager.Apply(
+                isDark ? Wpf.Ui.Appearance.ApplicationTheme.Dark : Wpf.Ui.Appearance.ApplicationTheme.Light,
+                Wpf.Ui.Controls.WindowBackdropType.Mica,
+                updateAccent: false);
         }
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"[EasyShare] ApplyTheme failed: {ex.Message}");
         }
+    }
+
+    private static void SwapAppThemeDictionary(bool darksTheme)
+    {
+        var uri = new Uri($"pack://application:,,,/EasyShare.App;component/Themes/{(darksTheme ? "Dark" : "Light")}.xaml");
+        var merged = Application.Current.Resources.MergedDictionaries;
+
+        var existing = merged.FirstOrDefault(d => d.Source?.OriginalString.Contains("/Themes/", StringComparison.Ordinal) == true);
+        if (existing is not null)
+            merged.Remove(existing);
+        merged.Insert(0, new ResourceDictionary { Source = uri });
     }
 
     private void SetupTrayIcon()

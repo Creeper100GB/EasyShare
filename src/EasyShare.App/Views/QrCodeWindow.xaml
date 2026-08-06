@@ -34,7 +34,7 @@
     <StackPanel Grid.Row="4" HorizontalAlignment="Center" Margin="0,4,0,8">
       <TextBlock Text="{Binding [Qr.ModeActive], Source={x:Static loc:Loc.Instance}}"
                  FontSize="13" FontWeight="SemiBold"
-                 Foreground="#4ade80" HorizontalAlignment="Center"/>
+                 Foreground="{DynamicResource SuccessColor}" HorizontalAlignment="Center"/>
       <TextBlock Text="{Binding [Qr.OpenUrl], Source={x:Static loc:Loc.Instance}}"
                  FontSize="11" Foreground="Gray" HorizontalAlignment="Center" Margin="0,2,0,0"/>
     </StackPanel>

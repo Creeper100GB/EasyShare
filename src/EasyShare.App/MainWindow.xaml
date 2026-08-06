@@ -27,16 +27,16 @@
         <Setter.Value>
           <ControlTemplate TargetType="ProgressBar">
             <Grid ClipToBounds="True">
-              <Border CornerRadius="9" Background="#2a2a2a"/>
+              <Border CornerRadius="9" Background="{DynamicResource ProgressBarTrack}"/>
               <Border x:Name="PART_Indicator" CornerRadius="9"
                       HorizontalAlignment="Left" ClipToBounds="True">
                 <Border.Background>
                   <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
-                    <GradientStop Color="#6366f1" Offset="0.0"/>
-                    <GradientStop Color="#a855f7" Offset="0.25"/>
-                    <GradientStop Color="#ec4899" Offset="0.5"/>
-                    <GradientStop Color="#f97316" Offset="0.75"/>
-                    <GradientStop Color="#fbbf24" Offset="1.0"/>
+                    <GradientStop Color="{DynamicResource AccentGradient1Color}" Offset="0.0"/>
+                    <GradientStop Color="{DynamicResource AccentGradient2Color}" Offset="0.25"/>
+                    <GradientStop Color="{DynamicResource AccentGradient3Color}" Offset="0.5"/>
+                    <GradientStop Color="{DynamicResource AccentGradient4Color}" Offset="0.75"/>
+                    <GradientStop Color="{DynamicResource AccentGradient5Color}" Offset="1.0"/>
                   </LinearGradientBrush>
                 </Border.Background>
               </Border>
@@ -51,14 +51,14 @@
               Cursor="Hand" MouseLeftButtonUp="DeviceCard_Click">
         <Border.Style>
           <Style TargetType="Border">
-            <Setter Property="Background" Value="#1e1e1e"/>
-            <Setter Property="BorderBrush" Value="#333333"/>
+            <Setter Property="Background" Value="{DynamicResource SurfaceElevated}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderColor}"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Style.Triggers>
               <DataTrigger Binding="{Binding IsSelected}" Value="True">
-                <Setter Property="BorderBrush" Value="#4ade80"/>
+                <Setter Property="BorderBrush" Value="{DynamicResource SuccessColor}"/>
                 <Setter Property="BorderThickness" Value="2.5"/>
-                <Setter Property="Background" Value="#1a2b22"/>
+                <Setter Property="Background" Value="{DynamicResource SuccessSurface}"/>
               </DataTrigger>
             </Style.Triggers>
           </Style>
@@ -69,7 +69,7 @@
                        FontSize="16" VerticalAlignment="Center" Margin="0,0,8,0"/>
             <TextBlock Text="{Binding Alias}" FontWeight="SemiBold" FontSize="14"
                        VerticalAlignment="Center"/>
-            <TextBlock Text="&#x2713;" FontSize="12" Foreground="#4ade80"
+            <TextBlock Text="&#x2713;" FontSize="12" Foreground="{DynamicResource SuccessColor}"
                        Visibility="{Binding IsSelected, Converter={StaticResource BoolToVis}}"
                        VerticalAlignment="Center"/>
           </StackPanel>
@@ -80,8 +80,8 @@
     </DataTemplate>
 
     <DataTemplate x:Key="TransferTemplate">
-      <Border Background="#1e1e1e" CornerRadius="6" Padding="12,10" Margin="0,0,0,6"
-              BorderBrush="#333333" BorderThickness="1">
+      <Border Background="{DynamicResource SurfaceElevated}" CornerRadius="6" Padding="12,10" Margin="0,0,0,6"
+              BorderBrush="{DynamicResource BorderColor}" BorderThickness="1">
         <Grid>
           <Grid.ColumnDefinitions>
             <ColumnDefinition Width="*"/>
@@ -94,7 +94,7 @@
                          Margin="0,0,0,4"/>
             <StackPanel Orientation="Horizontal">
               <TextBlock Text="{Binding Progress, StringFormat=\{0:P0\}}" FontSize="11" 
-                         FontWeight="SemiBold" Foreground="#a855f7" Margin="0,0,10,0"/>
+                         FontWeight="SemiBold" Foreground="{DynamicResource AccentGradient2}" Margin="0,0,10,0"/>
               <TextBlock Text="{Binding SpeedText}" FontSize="11" Foreground="Gray" Margin="0,0,10,0"/>
               <TextBlock Text="{Binding StatusText}" FontSize="11"
                          Foreground="{Binding Status, Converter={StaticResource StatusToColor}}"/>
@@ -137,16 +137,16 @@
     </Grid>
 
     <Border Grid.Row="1" x:Name="UpdateBanner" Visibility="Collapsed"
-            Background="#1e3a5f" Padding="12,8" Margin="8,0,8,0" CornerRadius="6"
-            BorderBrush="#2563eb" BorderThickness="1">
+            Background="{DynamicResource InfoBackground}" Padding="12,8" Margin="8,0,8,0" CornerRadius="6"
+            BorderBrush="{DynamicResource InfoBorder}" BorderThickness="1">
       <Grid>
         <Grid.ColumnDefinitions>
           <ColumnDefinition Width="*"/>
           <ColumnDefinition Width="Auto"/>
         </Grid.ColumnDefinitions>
         <StackPanel Grid.Column="0">
-          <TextBlock Text="{Binding [Main.UpdateAvailable], Source={x:Static loc:Loc.Instance}}" FontSize="13" FontWeight="SemiBold" Foreground="#93c5fd"/>
-          <TextBlock x:Name="UpdateVersionText" FontSize="11" Foreground="#93c5fd" Opacity="0.7"/>
+          <TextBlock Text="{Binding [Main.UpdateAvailable], Source={x:Static loc:Loc.Instance}}" FontSize="13" FontWeight="SemiBold" Foreground="{DynamicResource InfoText}"/>
+          <TextBlock x:Name="UpdateVersionText" FontSize="11" Foreground="{DynamicResource InfoText}" Opacity="0.7"/>
         </StackPanel>
         <Button Grid.Column="1" x:Name="UpdateButton" Content="{Binding [Main.UpdateButton], Source={x:Static loc:Loc.Instance}}" Padding="12,4"
                 Click="UpdateButton_Click" FontSize="12"/>
@@ -167,7 +167,7 @@
 
         <StackPanel Orientation="Horizontal" Margin="4,8,4,8">
           <TextBlock x:Name="SelectedDeviceText" FontSize="12"
-                     Foreground="#fbbf24" TextWrapping="Wrap"/>
+                     Foreground="{DynamicResource WarningColor}" TextWrapping="Wrap"/>
           <Button x:Name="DeselectButton" Content="{Binding [Main.Deselect], Source={x:Static loc:Loc.Instance}}"
                   FontSize="11" Padding="8,2" Margin="8,0,0,0" Click="DeselectButton_Click"
                   Visibility="Collapsed"/>
@@ -193,15 +193,15 @@
         </Grid.RowDefinitions>
 
         <Border Grid.Row="0" x:Name="DropZone"
-                BorderBrush="#444444" BorderThickness="2" CornerRadius="12"
-                Background="#161616" Padding="32"
+                BorderBrush="{DynamicResource DropZoneBorder}" BorderThickness="2" CornerRadius="12"
+                Background="{DynamicResource DropZoneBackground}" Padding="32"
                 AllowDrop="True" Drop="DropZone_Drop" DragOver="DropZone_DragOver" Margin="4">
           <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
             <TextBlock Text="&#x1F4E4;" FontSize="48" HorizontalAlignment="Center" Margin="0,0,0,12"/>
             <TextBlock Text="{Binding [Main.DropZone], Source={x:Static loc:Loc.Instance}}" FontSize="20" FontWeight="SemiBold"
-                       Foreground="#aaaaaa" HorizontalAlignment="Center"/>
+                       Foreground="{DynamicResource TextHint}" HorizontalAlignment="Center"/>
             <TextBlock Text="{Binding [Main.DropZoneHint], Source={x:Static loc:Loc.Instance}}" FontSize="12"
-                       Foreground="#666666" HorizontalAlignment="Center" Margin="0,6,0,0"/>
+                       Foreground="{DynamicResource TextSecondary}" HorizontalAlignment="Center" Margin="0,6,0,0"/>
           </StackPanel>
         </Border>
 
