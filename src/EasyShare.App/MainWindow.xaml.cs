@@ -128,7 +128,8 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
             if (!ShellIntegration.IsRegistered())
             {
                 var exePath = Environment.ProcessPath;
-                ShellIntegration.Register(exePath);
+                if (!string.IsNullOrEmpty(exePath))
+                    ShellIntegration.Register(exePath);
             }
         }
         catch (Exception ex)
@@ -147,7 +148,11 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
                 {
                     await NamedPipeServer.StartServerAsync(files =>
                     {
-                        Dispatcher.Invoke(() => SendFiles(files, _selectedDevice));
+                        Dispatcher.Invoke(() =>
+                        {
+                            var target = _selectedDevice ?? Devices.FirstOrDefault();
+                            if (target != null) SendFiles(files, target);
+                        });
                     }, _cts.Token);
                 }
                 catch (OperationCanceledException) { break; }
