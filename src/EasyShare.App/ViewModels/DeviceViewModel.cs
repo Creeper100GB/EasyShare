@@ -19,6 +19,7 @@ public class DeviceViewModel : INotifyPropertyChanged
     private bool _isManual;
     private List<string> _allIpAddresses = [];
     private string _bluetoothAddress = "";
+    private string _wifiDirectDeviceId = "";
 
     public string Alias
     {
@@ -100,6 +101,14 @@ public class DeviceViewModel : INotifyPropertyChanged
 
     public bool HasBluetooth => !string.IsNullOrEmpty(_bluetoothAddress);
     public bool HasWifi => !string.IsNullOrEmpty(_ipAddress);
+
+    public string WifiDirectDeviceId
+    {
+        get => _wifiDirectDeviceId;
+        set => SetProperty(ref _wifiDirectDeviceId, value);
+    }
+
+    public bool HasWifiDirect => !string.IsNullOrEmpty(_wifiDirectDeviceId);
 
     public event PropertyChangedEventHandler? PropertyChanged;
 

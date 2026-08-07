@@ -12,6 +12,7 @@
   </Dependencies>
   <Capabilities>
     <rescap:Capability Name="bluetooth" />
+    <uap:Capability Name="proximity" />
     <uap:Capability Name="privateNetworkClientServer" />
   </Capabilities>
 </Package>

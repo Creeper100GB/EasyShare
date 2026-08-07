@@ -40,8 +40,10 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
     public static readonly System.Windows.Input.RoutedCommand DeselectCommand = new();
     private MulticastDiscovery? _discovery;
     private BluetoothDiscovery? _btDiscovery;
+    private WiFiDirectDiscovery? _wfdDiscovery;
     private LocalSendServer? _server;
     private BluetoothServer? _btServer;
+    private WiFiDirectService? _wfdService;
     private TrustStore? _trustStore;
     private SessionManager? _sessionManager;
     private TaskbarIcon? _trayIcon;
@@ -223,8 +225,10 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         _sessionManager = new SessionManager();
         _discovery = new MulticastDiscovery(_config.MulticastAddress, _config.MulticastPort);
         _btDiscovery = new BluetoothDiscovery();
+        _wfdDiscovery = new WiFiDirectDiscovery();
         _server = new LocalSendServer(_certificate);
         _btServer = new BluetoothServer();
+        _wfdService = new WiFiDirectService();
 
         Task.Run(() => FirewallHelper.EnsureRules());
 
@@ -234,6 +238,8 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         _btDiscovery.DeviceFound += OnBtDeviceFound;
         _btDiscovery.DeviceSeen += OnBtDeviceSeen;
         _btDiscovery.DeviceLost += OnBtDeviceLost;
+        _wfdDiscovery.DeviceFound += OnWfdDeviceFound;
+        _wfdDiscovery.DeviceSeen += OnWfdDeviceSeen;
         _server.UploadRequested += OnUploadRequested;
         _server.UploadProgress += OnUploadProgress;
         _server.UploadCancelled += OnUploadCancelled;
@@ -300,6 +306,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         var self = BuildAnnouncement();
         _discovery?.Start(self);
         _btDiscovery?.Start(self);
+        _wfdDiscovery?.Start(self);
         _server?.Start(_config.HttpPort, _config.DeviceAlias, _fingerprint, _config.DefaultSavePath);
         Task.Run(() =>
         {
@@ -787,8 +794,11 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
                     {
                         using (fileSender)
                             await fileSender.SendAsync(session, cts.Token, compress: compressEnabled);
-                        success = true;
-                        break;
+                        if (fileSender.LastStatus == TransferStatus.Completed)
+                        {
+                            success = true;
+                            break;
+                        }
                     }
                     catch (OperationCanceledException)
                     {
@@ -797,6 +807,55 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
                     catch when (fileSender.WasConnectionError && ipIdx < candidateIps.Count - 1)
                     {
                         continue;
+                    }
+                }
+
+                if (!success && target.HasWifiDirect && _wfdService?.IsSupported == true && !cts.IsCancellationRequested)
+                {
+                    try
+                    {
+                        Dispatcher.Invoke(() =>
+                        {
+                            transfer.StatusText = Loc.Tr("Transfer.SwitchingWifiDirect");
+                            transfer.Progress = 0;
+                        });
+
+                        var endpoints = await _wfdService.ConnectAsync(target.WifiDirectDeviceId, cts.Token);
+                        if (endpoints is not null)
+                        {
+                            var wfdIp = endpoints.Value.RemoteIp;
+                            var candidateWfd = new List<string> { wfdIp };
+
+                            Dispatcher.Invoke(() =>
+                            {
+                                transfer.StatusText = Loc.Tr("Transfer.RunningWifiDirect");
+                                transfer.Progress = 0;
+                            });
+
+                            for (int wfdIdx = 0; wfdIdx < candidateWfd.Count; wfdIdx++)
+                            {
+                                if (cts.IsCancellationRequested) break;
+                                fileSender?.Dispose();
+                                fileSender = CreateFileSender(transfer, target, candidateWfd[wfdIdx], session, sendHistoryPath);
+                                try
+                                {
+                                    using (fileSender)
+                                        await fileSender.SendAsync(session, cts.Token, compress: compressEnabled);
+                                    if (fileSender.LastStatus == TransferStatus.Completed)
+                                    {
+                                        success = true;
+                                        break;
+                                    }
+                                }
+                                catch (OperationCanceledException) { throw; }
+                            }
+                        }
+                    }
+                    catch (OperationCanceledException) { throw; }
+                    catch { }
+                    finally
+                    {
+                        _wfdService?.Disconnect();
                     }
                 }
 
@@ -912,7 +971,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
                 transfer.CanCancel = status
                     is TransferStatus.Pending or TransferStatus.Active;
                 if (status
-                    is TransferStatus.Completed or TransferStatus.Failed or TransferStatus.Cancelled or TransferStatus.ConnectionFailed)
+                    is TransferStatus.Completed or TransferStatus.Failed or TransferStatus.Cancelled)
                     RemoveSendCancel(transfer);
                 StatusText.Text = status == TransferStatus.Active
                     ? Loc.Tr("Main.StatusSendingTo", target.Alias)
@@ -1432,6 +1491,58 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
                     ? Loc.Tr("Main.StatusDevicesFound", Devices.Count)
                     : Loc.Tr("Main.StatusReady");
                 UpdateSelectedDeviceText();
+            });
+        }
+        catch { }
+    }
+
+    private void OnWfdDeviceFound(object? sender, DeviceInfo device)
+    {
+        try
+        {
+            Dispatcher.Invoke(() =>
+            {
+                var existing = Devices.FirstOrDefault(d =>
+                    !string.IsNullOrEmpty(d.WifiDirectDeviceId) && d.WifiDirectDeviceId == device.WifiDirectDeviceId);
+                if (existing is not null) return;
+
+                existing = Devices.FirstOrDefault(d =>
+                    !string.IsNullOrEmpty(d.Fingerprint) && d.Fingerprint.StartsWith(device.Fingerprint));
+                if (existing is not null)
+                {
+                    if (!string.IsNullOrEmpty(device.WifiDirectDeviceId))
+                        existing.WifiDirectDeviceId = device.WifiDirectDeviceId;
+                    return;
+                }
+
+                Devices.Add(new DeviceViewModel
+                {
+                    Alias = device.Alias,
+                    DeviceModel = Loc.Tr("Main.WifiDirectDevice"),
+                    IpAddress = "",
+                    DeviceType = Core.Models.DeviceType.Desktop,
+                    Fingerprint = device.Fingerprint,
+                    Port = device.Port > 0 ? device.Port : 53317,
+                    WifiDirectDeviceId = device.WifiDirectDeviceId,
+                    LastSeen = DateTime.UtcNow,
+                    IsOnline = true,
+                });
+
+                StatusText.Text = Loc.Tr("Main.StatusDevicesFound", Devices.Count);
+            });
+        }
+        catch { }
+    }
+
+    private void OnWfdDeviceSeen(object? sender, DeviceInfo device)
+    {
+        try
+        {
+            Dispatcher.Invoke(() =>
+            {
+                var existing = Devices.FirstOrDefault(d => d.WifiDirectDeviceId == device.WifiDirectDeviceId);
+                if (existing is not null)
+                    existing.LastSeen = device.LastSeen;
             });
         }
         catch { }

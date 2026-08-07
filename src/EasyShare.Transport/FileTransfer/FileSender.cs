@@ -73,10 +73,11 @@ public class FileSender : IDisposable
             using var zip = ZipFile.Open(zipPath, ZipArchiveMode.Create);
             foreach (var file in files)
             {
+                ct.ThrowIfCancellationRequested();
                 if (file.LocalFilePath != null && File.Exists(file.LocalFilePath))
                 {
                     var entryName = file.FileName;
-                    zip.CreateEntryFromFile(file.LocalFilePath, entryName, CompressionLevel.Fastest);
+                    zip.CreateEntryFromFile(file.LocalFilePath, entryName, CompressionLevel.NoCompression);
                 }
             }
         }, ct);
@@ -152,11 +153,12 @@ public class FileSender : IDisposable
             LastStatus = TransferStatus.Cancelled;
             throw;
         }
-        catch (HttpRequestException) when (IsConnectionError())
+        catch (HttpRequestException)
         {
             WasConnectionError = true;
             StatusChanged?.Invoke(this, TransferStatus.ConnectionFailed);
             LastStatus = TransferStatus.ConnectionFailed;
+            throw;
         }
         catch
         {
@@ -170,8 +172,6 @@ public class FileSender : IDisposable
                 try { File.Delete(tempZipPath); } catch { }
         }
     }
-
-    private static bool IsConnectionError() => true;
 
     private async Task<PrepareUploadResponse?> PrepareUploadAsync(string baseUrl, List<FileEntry> files, CancellationToken ct, bool compressed, int originalFileCount)
     {

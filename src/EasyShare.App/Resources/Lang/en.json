@@ -126,7 +126,10 @@
   "App.CrashRestart": "Restart",
   "App.CrashClose": "Continue",
   "Main.BluetoothDevice": "Bluetooth device",
+  "Main.WifiDirectDevice": "WiFi Direct device",
   "Transfer.Retrying": "Trying alternative connection ({0})...",
+  "Transfer.SwitchingWifiDirect": "Switching to WiFi Direct...",
+  "Transfer.RunningWifiDirect": "Transferring via WiFi Direct...",
   "Transfer.SwitchingBluetooth": "Switching to Bluetooth...",
   "Transfer.RunningBluetooth": "Transferring via Bluetooth...",
   "Transfer.ConnectionFailed": "Connection failed – check firewall or port 53317"

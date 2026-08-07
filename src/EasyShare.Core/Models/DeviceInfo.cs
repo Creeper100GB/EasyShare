@@ -15,4 +15,6 @@ public record DeviceInfo
     public List<string> AllIpAddresses { get; init; } = [];
     public string BluetoothAddress { get; init; } = "";
     public bool HasBluetooth => !string.IsNullOrEmpty(BluetoothAddress);
+    public string WifiDirectDeviceId { get; init; } = "";
+    public bool HasWifiDirect => !string.IsNullOrEmpty(WifiDirectDeviceId);
 }
