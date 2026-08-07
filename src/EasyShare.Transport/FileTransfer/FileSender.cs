@@ -53,6 +53,9 @@ public class FileSender : IDisposable
             System.Diagnostics.Debug.WriteLine("[EasyShare] Warnung: TLS deaktiviert - Verbindung wird ohne Zertifikatsvalidierung aufgebaut.");
         }
 
+        handler.UseProxy = false;
+        handler.AutomaticDecompression = System.Net.DecompressionMethods.None;
+
         _client = new HttpClient(handler);
         _client.Timeout = Timeout.InfiniteTimeSpan;
     }

@@ -103,6 +103,7 @@
   "Main.EmptyTransfers": "No transfers",
   "Main.EmptyHistory": "No history",
   "Main.HistoryOpen": "Click to open",
+  "Main.HistoryReveal": "Show in Explorer",
   "Settings.PortInvalid": "Port must be between 1 and 65535",
   "Tray.ReceivedTitle": "EasyShare",
   "Tray.Received": "File received: {0}",

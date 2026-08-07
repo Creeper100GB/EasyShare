@@ -47,13 +47,19 @@
       <Setter Property="Template">
         <Setter.Value>
           <ControlTemplate TargetType="ProgressBar">
-            <Border CornerRadius="7" Background="{DynamicResource ProgressBarTrack}" ClipToBounds="True">
-              <Border x:Name="PART_Indicator" HorizontalAlignment="Left">
-                <Border.Background>
-                  <SolidColorBrush Color="{DynamicResource AccentGradient2Color}"/>
-                </Border.Background>
-              </Border>
-            </Border>
+            <Grid x:Name="PART_Track" ClipToBounds="True">
+              <Border CornerRadius="7" Background="{DynamicResource ProgressBarTrack}"/>
+              <Grid x:Name="PART_Indicator" HorizontalAlignment="Left">
+                <Border CornerRadius="7">
+                  <Border.Background>
+                    <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+                      <GradientStop Color="{DynamicResource AccentGradient1Color}" Offset="0"/>
+                      <GradientStop Color="{DynamicResource AccentGradient2Color}" Offset="1"/>
+                    </LinearGradientBrush>
+                  </Border.Background>
+                </Border>
+              </Grid>
+            </Grid>
           </ControlTemplate>
         </Setter.Value>
       </Setter>
@@ -121,6 +127,7 @@
             <StackPanel Orientation="Horizontal">
               <TextBlock Text="{Binding Progress, StringFormat=\{0:P0\}}" FontSize="11" 
                          FontWeight="SemiBold" Foreground="{DynamicResource AccentGradient2}" Margin="0,0,10,0"/>
+              <TextBlock Text="{Binding BytesText}" FontSize="11" Foreground="Gray" Margin="0,0,10,0"/>
               <TextBlock Text="{Binding SpeedText}" FontSize="11" Foreground="Gray" Margin="0,0,10,0"/>
               <TextBlock Text="{Binding EtaText}" FontSize="11" Foreground="Gray" Margin="0,0,10,0"/>
               <TextBlock Text="{Binding StatusText}" FontSize="11"
@@ -138,6 +145,14 @@
 <DataTemplate x:Key="HistoryTemplate">
       <Border Background="transparent" CornerRadius="4" Padding="8,4" Margin="0,0,0,2"
               MouseDown="HistoryItem_MouseDown" ToolTip="{Binding [Main.HistoryOpen], Source={x:Static loc:Loc.Instance}}">
+        <Border.ContextMenu>
+          <ContextMenu>
+            <MenuItem Header="{Binding [Main.HistoryReveal], Source={x:Static loc:Loc.Instance}}"
+                      Click="HistoryItem_Reveal" />
+            <MenuItem Header="{Binding [Main.HistoryOpen], Source={x:Static loc:Loc.Instance}}"
+                      Click="HistoryItem_MenuOpen" />
+          </ContextMenu>
+        </Border.ContextMenu>
         <StackPanel Orientation="Horizontal">
           <TextBlock Text="{Binding Direction}" FontSize="11" Foreground="Gray" Width="16"/>
           <TextBlock Text="{Binding FileName}" FontSize="11" TextTrimming="CharacterEllipsis" Margin="4,0"/>

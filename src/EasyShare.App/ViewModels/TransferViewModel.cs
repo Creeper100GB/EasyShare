@@ -10,6 +10,7 @@ public class TransferViewModel : INotifyPropertyChanged
     private double _progress;
     private string _speedText = string.Empty;
     private string _etaText = string.Empty;
+    private string _bytesText = string.Empty;
     private string _statusText = string.Empty;
     private TransferStatus _status;
     private bool _canCancel;
@@ -44,6 +45,12 @@ public class TransferViewModel : INotifyPropertyChanged
     {
         get => _etaText;
         set => SetProperty(ref _etaText, value);
+    }
+
+    public string BytesText
+    {
+        get => _bytesText;
+        set => SetProperty(ref _bytesText, value);
     }
 
     public string StatusText

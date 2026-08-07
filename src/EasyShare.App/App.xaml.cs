@@ -13,22 +13,32 @@ public partial class App : Application
     protected override void OnStartup(StartupEventArgs e)
     {
         _singleInstanceMutex = new System.Threading.Mutex(true, @"Local\EasyShare.SingleInstance", out bool createdNew);
+
         if (!createdNew)
         {
-            if (e.Args.Length > 0)
+            // Abandoned-Mutex-Szenario (z.B. nach taskkill durch das Update-Skript):
+            // Der alte Prozess hielt den Mutex, wurde aber hart beendet -> versuchen zu übernehmen.
+            bool acquired;
+            try { acquired = _singleInstanceMutex.WaitOne(TimeSpan.Zero); }
+            catch (System.Threading.AbandonedMutexException) { acquired = true; }
+
+            if (!acquired)
             {
-                _ = Task.Run(async () =>
+                if (e.Args.Length > 0)
                 {
-                    try { await NamedPipeServer.SendFilesAsync(e.Args); }
-                    catch { }
-                });
+                    _ = Task.Run(async () =>
+                    {
+                        try { await NamedPipeServer.SendFilesAsync(e.Args); }
+                        catch { }
+                    });
+                }
+                else
+                {
+                    MessageBox.Show(Loc.Tr("App.AlreadyRunning"), "EasyShare", MessageBoxButton.OK, MessageBoxImage.Information);
+                }
+                Shutdown();
+                return;
             }
-            else
-            {
-                MessageBox.Show(Loc.Tr("App.AlreadyRunning"), "EasyShare", MessageBoxButton.OK, MessageBoxImage.Information);
-            }
-            Shutdown();
-            return;
         }
 
         base.OnStartup(e);

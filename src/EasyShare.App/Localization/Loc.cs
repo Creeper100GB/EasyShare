@@ -27,7 +27,7 @@ public sealed class Loc : INotifyPropertyChanged
             if (_language == value) return;
             _language = value;
             _strings = Load(value);
-            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs("Item"));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs("Item[]"));
             LanguageChanged?.Invoke();
         }
     }

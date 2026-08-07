@@ -61,6 +61,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
     private readonly List<string> _pendingFiles = new();
     private readonly AmsiScanner _amsiScanner = new();
     private readonly System.Windows.Threading.DispatcherTimer _deviceStatusTimer;
+    private System.Windows.Threading.DispatcherTimer? _updateCheckTimer;
 
     public MainWindow()
     {
@@ -93,6 +94,13 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         };
         _deviceStatusTimer.Tick += (_, _) => RefreshDeviceStatus();
         _deviceStatusTimer.Start();
+
+        _updateCheckTimer = new System.Windows.Threading.DispatcherTimer
+        {
+            Interval = TimeSpan.FromHours(4),
+        };
+        _updateCheckTimer.Tick += (_, _) => CheckForUpdatesAsync();
+        _updateCheckTimer.Start();
 
         CheckForUpdatesAsync();
         ConsumeShareArgs();
@@ -655,6 +663,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
             Dispatcher.BeginInvoke(() =>
             {
                 transfer.Progress = progress;
+                transfer.BytesText = $"{FormatBytes(fileSender.BytesSent)} / {FormatBytes(fileSender.TotalBytes)}";
                 transfer.SpeedText = $"{FormatBytes((long)fileSender.CurrentBytesPerSecond)}/s";
                 transfer.EtaText = FormatEta(fileSender.TotalBytes - fileSender.BytesSent, fileSender.CurrentBytesPerSecond);
                 transfer.Status = TransferStatus.Active;
@@ -676,8 +685,11 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
                     TransferStatus.Cancelled => Loc.Tr("Transfer.Cancelled"),
                     _ => transfer.StatusText,
                 };
-                transfer.CanCancel = false;
-                RemoveSendCancel(transfer);
+                transfer.CanCancel = status
+                    is TransferStatus.Pending or TransferStatus.Active;
+                if (status
+                    is TransferStatus.Completed or TransferStatus.Failed or TransferStatus.Cancelled)
+                    RemoveSendCancel(transfer);
                 StatusText.Text = status == TransferStatus.Active
                     ? Loc.Tr("Main.StatusSendingTo", target.Alias)
                     : Loc.Tr("Main.StatusTransfer", transfer.StatusText);
@@ -930,6 +942,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
                     transfer.Progress = e.TotalBytes > 0
                         ? Math.Min(1.0, (double)e.BytesReceived / e.TotalBytes)
                         : 1.0;
+                    transfer.BytesText = $"{FormatBytes(e.BytesReceived)} / {FormatBytes(e.TotalBytes)}";
                     transfer.SpeedText = $"{FormatBytes((long)e.BytesPerSecond)}/s";
                     transfer.EtaText = FormatEta(e.TotalBytes - e.BytesReceived, e.BytesPerSecond);
                     transfer.StatusText = Loc.Tr("Transfer.Running");
@@ -1119,6 +1132,50 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
             {
             }
         }
+    }
+
+    private void HistoryItem_Reveal(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement fe && fe.DataContext is HistoryEntry entry && !string.IsNullOrEmpty(entry.Path))
+        {
+            try
+            {
+                if (Directory.Exists(entry.Path))
+                {
+                    Process.Start(new ProcessStartInfo("explorer.exe", $"\"{entry.Path}\"") { UseShellExecute = true });
+                }
+                else if (File.Exists(entry.Path))
+                {
+                    Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{entry.Path}\"") { UseShellExecute = true });
+                }
+            }
+            catch
+            {
+            }
+        }
+        e.Handled = true;
+    }
+
+    private void HistoryItem_MenuOpen(object sender, RoutedEventArgs e)
+    {
+        if (sender is MenuItem mi && mi.DataContext is HistoryEntry entry && !string.IsNullOrEmpty(entry.Path))
+        {
+            try
+            {
+                if (Directory.Exists(entry.Path))
+                {
+                    Process.Start(new ProcessStartInfo("explorer.exe", $"\"{entry.Path}\"") { UseShellExecute = true });
+                }
+                else if (File.Exists(entry.Path))
+                {
+                    Process.Start(new ProcessStartInfo(entry.Path) { UseShellExecute = true });
+                }
+            }
+            catch
+            {
+            }
+        }
+        e.Handled = true;
     }
 
     private static string FormatBytes(long bytes)
