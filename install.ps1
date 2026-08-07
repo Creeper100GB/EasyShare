@@ -58,5 +58,32 @@ try {
     Write-Host 'Desktop-Verknüpfung konnte nicht erstellt werden.' -ForegroundColor Yellow
 }
 
+# Firewall-Regeln (benötigt Admin)
+function Add-FirewallRules {
+    param([string]$ExePath)
+    $ruleName = 'EasyShare'
+    $existing = Get-NetFirewallRule -DisplayName $ruleName -ErrorAction SilentlyContinue
+    if ($existing) {
+        Write-Host 'Firewall-Regeln bereits vorhanden.' -ForegroundColor Green
+        return
+    }
+    New-NetFirewallRule -DisplayName $ruleName -Direction Inbound -Action Allow -Program $ExePath -Protocol TCP -LocalPort 53317 -Profile Private,Domain -ErrorAction SilentlyContinue | Out-Null
+    New-NetFirewallRule -DisplayName "$ruleName-UDP" -Direction Inbound -Action Allow -Program $ExePath -Protocol UDP -LocalPort 53317 -Profile Private,Domain -ErrorAction SilentlyContinue | Out-Null
+    Write-Host 'Firewall-Regeln erstellt (TCP+UDP Port 53317, Privates/Domänen-Profil).' -ForegroundColor Green
+}
+
+if ([Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    Add-FirewallRules -ExePath $exe
+} else {
+    try {
+        $proc = Start-Process powershell -ArgumentList "-NoProfile -ExecutionPolicy Bypass -Command `"Add-FirewallRules -ExePath '$exe'`"" -Verb RunAs -WindowStyle Hidden -Wait -PassThru
+        if ($proc.ExitCode -ne 0) {
+            Write-Host 'Firewall-Regeln konnten nicht erstellt werden (Admin-Rechte nötig).' -ForegroundColor Yellow
+        }
+    } catch {
+        Write-Host 'Firewall-Regeln: UAC-Prompt abgelehnt oder fehlgeschlagen. Port 53317 muss manuell freigegeben werden.' -ForegroundColor Yellow
+    }
+}
+
 Write-Host 'Starte EasyShare ...' -ForegroundColor Green
 Start-Process $exe

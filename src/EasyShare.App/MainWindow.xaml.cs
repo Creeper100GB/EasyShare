@@ -221,6 +221,8 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         _discovery = new MulticastDiscovery(_config.MulticastAddress, _config.MulticastPort);
         _server = new LocalSendServer(_certificate);
 
+        Task.Run(() => FirewallHelper.EnsureRules());
+
         _discovery.DeviceFound += OnDeviceFound;
         _discovery.DeviceSeen += OnDeviceSeen;
         _discovery.DeviceLost += OnDeviceLost;
@@ -432,6 +434,10 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
                     existing.DeviceType = device.DeviceType ?? DeviceType.Desktop;
                     existing.Port = device.Port > 0 ? device.Port : 53317;
                     existing.LastSeen = DateTime.UtcNow;
+                    if (device.AllIpAddresses.Count > 0)
+                    {
+                        existing.AllIpAddresses = device.AllIpAddresses.Distinct().ToList();
+                    }
                     return;
                 }
 
@@ -444,6 +450,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
                     Fingerprint = device.Fingerprint,
                     Port = device.Port > 0 ? device.Port : 53317,
                     LastSeen = DateTime.UtcNow,
+                    AllIpAddresses = device.AllIpAddresses.Distinct().ToList(),
                 });
 
                 StatusText.Text = Loc.Tr("Main.StatusDevicesFound", Devices.Count);
@@ -705,53 +712,14 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         Dispatcher.Invoke(() => Transfers.Add(transfer));
         StatusText.Text = Loc.Tr("Main.StatusSendingTo", target.Alias);
 
-        var fileSender = new FileSender(
-            BuildAnnouncement(),
-            target.IpAddress,
-            target.Port,
-            target.Fingerprint,
-            useTls: true,
-            Constants.DefaultApiBase);
-        fileSender.ProgressChanged += (_, progress) =>
-        {
-            Dispatcher.BeginInvoke(() =>
-            {
-                transfer.Progress = progress;
-                transfer.BytesText = $"{FormatBytes(fileSender.BytesSent)} / {FormatBytes(fileSender.TotalBytes)}";
-                transfer.SpeedText = $"{FormatBytes((long)fileSender.CurrentBytesPerSecond)}/s";
-                transfer.EtaText = FormatEta(fileSender.TotalBytes - fileSender.BytesSent, fileSender.CurrentBytesPerSecond);
-                transfer.Status = TransferStatus.Active;
-                transfer.StatusText = Loc.Tr("Transfer.Running");
-            });
-        };
+        var candidateIps = target.AllIpAddresses
+            .Where(ip => !string.IsNullOrEmpty(ip) && ip != target.IpAddress)
+            .Prepend(target.IpAddress)
+            .ToList();
 
         var sendHistoryPath = BuildHistoryPath(session.Files);
-
-        fileSender.StatusChanged += (_, status) =>
-        {
-            Dispatcher.Invoke(() =>
-            {
-                transfer.Status = status;
-                transfer.StatusText = status switch
-                {
-                    TransferStatus.Completed => Loc.Tr("Transfer.Completed"),
-                    TransferStatus.Failed => Loc.Tr("Transfer.Failed"),
-                    TransferStatus.Cancelled => Loc.Tr("Transfer.Cancelled"),
-                    _ => transfer.StatusText,
-                };
-                transfer.CanCancel = status
-                    is TransferStatus.Pending or TransferStatus.Active;
-                if (status
-                    is TransferStatus.Completed or TransferStatus.Failed or TransferStatus.Cancelled)
-                    RemoveSendCancel(transfer);
-                StatusText.Text = status == TransferStatus.Active
-                    ? Loc.Tr("Main.StatusSendingTo", target.Alias)
-                    : Loc.Tr("Main.StatusTransfer", transfer.StatusText);
-
-                if (status == TransferStatus.Completed)
-                    History.Insert(0, new HistoryEntry { FileName = transfer.FileName, Direction = "→", Timestamp = DateTime.Now, Path = sendHistoryPath });
-            });
-        };
+        FileSender? fileSender = null;
+        fileSender = CreateFileSender(transfer, target, candidateIps[0], session, sendHistoryPath);
 
         var cts = new CancellationTokenSource();
         transfer.CancelAction = () => cts.Cancel();
@@ -780,8 +748,43 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
                     }
                 }
 
-                using (fileSender)
-                    await fileSender.SendAsync(session, cts.Token, compress: compressEnabled);
+                var success = false;
+                for (int ipIdx = 0; ipIdx < candidateIps.Count; ipIdx++)
+                {
+                    if (cts.IsCancellationRequested) break;
+
+                    var ip = candidateIps[ipIdx];
+                    fileSender?.Dispose();
+
+                    if (ipIdx > 0)
+                    {
+                        Dispatcher.Invoke(() =>
+                        {
+                            transfer.StatusText = Loc.Tr("Transfer.Retrying", ip);
+                            transfer.Progress = 0;
+                        });
+                    }
+
+                    fileSender = CreateFileSender(transfer, target, ip, session, sendHistoryPath);
+                    try
+                    {
+                        using (fileSender)
+                            await fileSender.SendAsync(session, cts.Token, compress: compressEnabled);
+                        success = true;
+                        break;
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        throw;
+                    }
+                    catch when (fileSender.WasConnectionError && ipIdx < candidateIps.Count - 1)
+                    {
+                        continue;
+                    }
+                }
+
+                if (!success && !cts.IsCancellationRequested)
+                    throw new Exception(Loc.Tr("Transfer.ConnectionFailed"));
             }
             catch (OperationCanceledException)
             {
@@ -819,6 +822,58 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
                 });
             }
         });
+    }
+
+    private FileSender CreateFileSender(TransferViewModel transfer, DeviceViewModel target, string ip, TransferSession session, string sendHistoryPath)
+    {
+        var sender = new FileSender(
+            BuildAnnouncement(),
+            ip,
+            target.Port,
+            target.Fingerprint,
+            useTls: true,
+            Constants.DefaultApiBase);
+        sender.ProgressChanged += (_, progress) =>
+        {
+            Dispatcher.BeginInvoke(() =>
+            {
+                transfer.Progress = progress;
+                transfer.BytesText = $"{FormatBytes(sender.BytesSent)} / {FormatBytes(sender.TotalBytes)}";
+                transfer.SpeedText = $"{FormatBytes((long)sender.CurrentBytesPerSecond)}/s";
+                transfer.EtaText = FormatEta(sender.TotalBytes - sender.BytesSent, sender.CurrentBytesPerSecond);
+                transfer.Status = TransferStatus.Active;
+                transfer.StatusText = Loc.Tr("Transfer.Running");
+            });
+        };
+
+        sender.StatusChanged += (_, status) =>
+        {
+            Dispatcher.Invoke(() =>
+            {
+                transfer.Status = status;
+                transfer.StatusText = status switch
+                {
+                    TransferStatus.Completed => Loc.Tr("Transfer.Completed"),
+                    TransferStatus.Failed => Loc.Tr("Transfer.Failed"),
+                    TransferStatus.Cancelled => Loc.Tr("Transfer.Cancelled"),
+                    TransferStatus.ConnectionFailed => Loc.Tr("Transfer.ConnectionFailed"),
+                    _ => transfer.StatusText,
+                };
+                transfer.CanCancel = status
+                    is TransferStatus.Pending or TransferStatus.Active;
+                if (status
+                    is TransferStatus.Completed or TransferStatus.Failed or TransferStatus.Cancelled or TransferStatus.ConnectionFailed)
+                    RemoveSendCancel(transfer);
+                StatusText.Text = status == TransferStatus.Active
+                    ? Loc.Tr("Main.StatusSendingTo", target.Alias)
+                    : Loc.Tr("Main.StatusTransfer", transfer.StatusText);
+
+                if (status == TransferStatus.Completed)
+                    History.Insert(0, new HistoryEntry { FileName = transfer.FileName, Direction = "→", Timestamp = DateTime.Now, Path = sendHistoryPath });
+            });
+        };
+
+        return sender;
     }
 
     private void OnUploadRequested(object? sender, UploadRequestEventArgs e)

@@ -17,6 +17,7 @@ public class DeviceViewModel : INotifyPropertyChanged
     private bool _isOnline;
     private string _lastSeenText = string.Empty;
     private bool _isManual;
+    private List<string> _allIpAddresses = [];
 
     public string Alias
     {
@@ -82,6 +83,12 @@ public class DeviceViewModel : INotifyPropertyChanged
     {
         get => _isManual;
         set => SetProperty(ref _isManual, value);
+    }
+
+    public List<string> AllIpAddresses
+    {
+        get => _allIpAddresses;
+        set => SetProperty(ref _allIpAddresses, value);
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;

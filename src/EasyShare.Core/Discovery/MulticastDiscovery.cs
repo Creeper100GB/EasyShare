@@ -21,7 +21,7 @@ public class MulticastDiscovery : IDisposable
     private List<IPAddress> _localAddresses = new();
     private List<(uint Network, uint Mask)> _localSubnets = new();
 
-    private readonly record struct KnownDevice(DateTime LastSeen, string Signature);
+    private readonly record struct KnownDevice(DateTime LastSeen, string Signature, List<string> AllIps);
 
     public event EventHandler<DeviceInfo>? DeviceFound;
     public event EventHandler<DeviceInfo>? DeviceSeen;
@@ -211,7 +211,7 @@ public class MulticastDiscovery : IDisposable
                 var now = DateTime.UtcNow;
                 var sourceIp = result.RemoteEndPoint.Address?.ToString() ?? "";
                 var announcedIp = ResolveAnnouncedIp(announcement.Ip, sourceIp);
-                var signature = $"{announcement.Alias}|{announcement.Port}|{announcement.Version}|{announcement.DeviceModel}|{announcement.DeviceType}|{announcement.Protocol}|{announcement.Download}|{announcedIp}";
+                var signature = $"{announcement.Alias}|{announcement.Port}|{announcement.Version}|{announcement.DeviceModel}|{announcement.DeviceType}|{announcement.Protocol}|{announcement.Download}";
                 var info = new DeviceInfo
                 {
                     Alias = announcement.Alias,
@@ -231,19 +231,28 @@ public class MulticastDiscovery : IDisposable
                 {
                     if (existing.Signature != signature)
                     {
-                        _knownDevices[announcement.Fingerprint] = new KnownDevice(now, signature);
+                        var allIps = new List<string>(existing.AllIps) { announcedIp };
+                        allIps = allIps.Distinct().ToList();
+                        _knownDevices[announcement.Fingerprint] = new KnownDevice(now, signature, allIps);
                         isNewOrChanged = true;
                     }
                     else
                     {
-                        _knownDevices[announcement.Fingerprint] = existing with { LastSeen = now };
+                        var allIps = new List<string>(existing.AllIps) { announcedIp };
+                        allIps = allIps.Distinct().ToList();
+                        _knownDevices[announcement.Fingerprint] = existing with { LastSeen = now, AllIps = allIps };
                     }
                 }
                 else
                 {
-                    _knownDevices[announcement.Fingerprint] = new KnownDevice(now, signature);
+                    _knownDevices[announcement.Fingerprint] = new KnownDevice(now, signature, [announcedIp]);
                     isNewOrChanged = true;
                 }
+
+                info = info with
+                {
+                    AllIpAddresses = _knownDevices[announcement.Fingerprint].AllIps.ToList(),
+                };
 
                 DeviceSeen?.Invoke(this, info);
                 if (isNewOrChanged)

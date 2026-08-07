@@ -10,5 +10,6 @@ public enum TransferStatus
     Completed,
     Cancelled,
     Failed,
-    Rejected
+    Rejected,
+    ConnectionFailed
 }

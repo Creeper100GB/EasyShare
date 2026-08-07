@@ -12,4 +12,5 @@ public record DeviceInfo
     public bool Download { get; init; }
     public string IpAddress { get; init; } = string.Empty;
     public DateTime LastSeen { get; init; }
+    public List<string> AllIpAddresses { get; init; } = [];
 }

@@ -33,6 +33,7 @@ public class FileSender : IDisposable
     public event EventHandler<double>? ProgressChanged;
     public event EventHandler<TransferStatus>? StatusChanged;
     public TransferStatus? LastStatus { get; private set; }
+    public bool WasConnectionError { get; private set; }
 
     public FileSender(DeviceAnnouncement localInfo, string targetIp, int targetPort, string targetFingerprint, bool useTls, string apiBase)
     {
@@ -95,6 +96,7 @@ public class FileSender : IDisposable
     {
         StatusChanged?.Invoke(this, TransferStatus.Active);
         LastStatus = TransferStatus.Active;
+        WasConnectionError = false;
         var files = session.Files.ToList();
         _bytesSent = 0;
         _lastSpeedBytes = 0;
@@ -150,6 +152,12 @@ public class FileSender : IDisposable
             LastStatus = TransferStatus.Cancelled;
             throw;
         }
+        catch (HttpRequestException) when (IsConnectionError())
+        {
+            WasConnectionError = true;
+            StatusChanged?.Invoke(this, TransferStatus.ConnectionFailed);
+            LastStatus = TransferStatus.ConnectionFailed;
+        }
         catch
         {
             StatusChanged?.Invoke(this, TransferStatus.Failed);
@@ -162,6 +170,8 @@ public class FileSender : IDisposable
                 try { File.Delete(tempZipPath); } catch { }
         }
     }
+
+    private static bool IsConnectionError() => true;
 
     private async Task<PrepareUploadResponse?> PrepareUploadAsync(string baseUrl, List<FileEntry> files, CancellationToken ct, bool compressed, int originalFileCount)
     {
