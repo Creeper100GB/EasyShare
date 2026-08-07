@@ -19,6 +19,7 @@ public class MulticastDiscovery : IDisposable
     private Timer? _announceTimer;
     private DeviceAnnouncement? _self;
     private List<IPAddress> _localAddresses = new();
+    private List<(uint Network, uint Mask)> _localSubnets = new();
 
     private readonly record struct KnownDevice(DateTime LastSeen, string Signature);
 
@@ -37,6 +38,7 @@ public class MulticastDiscovery : IDisposable
         _self = self;
         _cts = new CancellationTokenSource();
         _localAddresses = GetLocalIpv4Addresses();
+        _localSubnets = GetLocalIpv4Subnets();
 
         _client = new UdpClient();
         _client.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
@@ -67,7 +69,7 @@ public class MulticastDiscovery : IDisposable
             if (nic.OperationalStatus != OperationalStatus.Up) continue;
             if (nic.NetworkInterfaceType == NetworkInterfaceType.Loopback) continue;
 
-            const string badName = "veth|vethernet|wsl|docker|vmnet|npcap|loopback|hyper-v";
+            const string badName = "veth|vethernet|wsl|docker|vmnet|npcap|loopback|hyper-v|tun|tap|tunnel|vpn|wg|zerotier|tailscale|ppp";
             if (System.Text.RegularExpressions.Regex.IsMatch(nic.Name, badName, System.Text.RegularExpressions.RegexOptions.IgnoreCase))
                 continue;
 
@@ -81,6 +83,57 @@ public class MulticastDiscovery : IDisposable
             }
         }
         return result;
+    }
+
+    private static List<(uint Network, uint Mask)> GetLocalIpv4Subnets()
+    {
+        var result = new List<(uint, uint)>();
+        const string badName = "veth|vethernet|wsl|docker|vmnet|npcap|loopback|hyper-v|tun|tap|tunnel|vpn|wg|zerotier|tailscale|ppp";
+        foreach (var nic in NetworkInterface.GetAllNetworkInterfaces())
+        {
+            if (nic.OperationalStatus != OperationalStatus.Up) continue;
+            if (nic.NetworkInterfaceType == NetworkInterfaceType.Loopback) continue;
+            if (System.Text.RegularExpressions.Regex.IsMatch(nic.Name, badName, System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+                continue;
+
+            foreach (var ua in nic.GetIPProperties().UnicastAddresses)
+            {
+                if (ua.Address.AddressFamily != AddressFamily.InterNetwork) continue;
+                var prefix = ua.PrefixLength;
+                if (prefix is < 1 or > 32) continue;
+
+                var addr = ToUInt32(ua.Address.GetAddressBytes());
+                var mask = prefix == 32 ? uint.MaxValue : (uint.MaxValue << (32 - prefix));
+                result.Add((addr & mask, mask));
+            }
+        }
+        return result;
+    }
+
+    private static uint ToUInt32(byte[] bytes) =>
+        ((uint)bytes[0] << 24) | ((uint)bytes[1] << 16) | ((uint)bytes[2] << 8) | bytes[3];
+
+    private bool IsOnLocalSubnet(IPAddress address)
+    {
+        if (_localSubnets.Count == 0) return false;
+        var addr = ToUInt32(address.GetAddressBytes());
+        foreach (var (network, mask) in _localSubnets)
+        {
+            if ((addr & mask) == network) return true;
+        }
+        return false;
+    }
+
+    private string ResolveAnnouncedIp(string? announced, string sourceIp)
+    {
+        if (!string.IsNullOrEmpty(announced)
+            && IPAddress.TryParse(announced, out var parsed)
+            && (IPAddress.IsLoopback(parsed) || IsOnLocalSubnet(parsed) || _localSubnets.Count == 0))
+        {
+            return announced;
+        }
+
+        return sourceIp;
     }
 
     public void UpdateSelf(DeviceAnnouncement self)
@@ -108,9 +161,23 @@ public class MulticastDiscovery : IDisposable
             {
                 try
                 {
+                    var announce = new DeviceAnnouncement
+                    {
+                        Alias = self.Alias,
+                        Version = self.Version,
+                        DeviceModel = self.DeviceModel,
+                        DeviceType = self.DeviceType,
+                        Fingerprint = self.Fingerprint,
+                        Port = self.Port,
+                        Protocol = self.Protocol,
+                        Download = self.Download,
+                        Announce = self.Announce,
+                        Ip = local.ToString(),
+                    };
                     _client.Client.SetSocketOption(
                         SocketOptionLevel.IP, SocketOptionName.MulticastInterface, local.GetAddressBytes());
-                    _client.Send(bytes, bytes.Length, group);
+                    var announceBytes = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(announce));
+                    _client.Send(announceBytes, announceBytes.Length, group);
                 }
                 catch
                 {
@@ -139,7 +206,9 @@ public class MulticastDiscovery : IDisposable
                     continue;
 
                 var now = DateTime.UtcNow;
-                var signature = $"{announcement.Alias}|{announcement.Port}|{announcement.Version}|{announcement.DeviceModel}|{announcement.DeviceType}|{announcement.Protocol}|{announcement.Download}|{result.RemoteEndPoint.Address}";
+                var sourceIp = result.RemoteEndPoint.Address?.ToString() ?? "";
+                var announcedIp = ResolveAnnouncedIp(announcement.Ip, sourceIp);
+                var signature = $"{announcement.Alias}|{announcement.Port}|{announcement.Version}|{announcement.DeviceModel}|{announcement.DeviceType}|{announcement.Protocol}|{announcement.Download}|{announcedIp}";
                 var info = new DeviceInfo
                 {
                     Alias = announcement.Alias,
@@ -150,7 +219,7 @@ public class MulticastDiscovery : IDisposable
                     Port = announcement.Port,
                     Protocol = announcement.Protocol,
                     Download = announcement.Download,
-                    IpAddress = result.RemoteEndPoint.Address.ToString(),
+                    IpAddress = announcedIp,
                     LastSeen = now,
                 };
 

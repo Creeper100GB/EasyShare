@@ -124,7 +124,7 @@
                        TextTrimming="CharacterEllipsis" Margin="0,0,0,6"/>
             <ProgressBar Value="{Binding Progress}" Style="{StaticResource VibrantProgressBar}"
                          Margin="0,0,0,4"/>
-            <StackPanel Orientation="Horizontal">
+            <WrapPanel Orientation="Horizontal">
               <TextBlock Text="{Binding Progress, StringFormat=\{0:P0\}}" FontSize="11" 
                          FontWeight="SemiBold" Foreground="{DynamicResource AccentGradient2}" Margin="0,0,10,0"/>
               <TextBlock Text="{Binding BytesText}" FontSize="11" Foreground="Gray" Margin="0,0,10,0"/>
@@ -132,7 +132,7 @@
               <TextBlock Text="{Binding EtaText}" FontSize="11" Foreground="Gray" Margin="0,0,10,0"/>
               <TextBlock Text="{Binding StatusText}" FontSize="11"
                          Foreground="{Binding Status, Converter={StaticResource StatusToColor}}"/>
-            </StackPanel>
+            </WrapPanel>
           </StackPanel>
           <Button Grid.Column="1" Content="{Binding [Transfer.Cancel], Source={x:Static loc:Loc.Instance}}"
                   FontSize="11" Padding="10,4" Margin="10,0,0,0" VerticalAlignment="Center"

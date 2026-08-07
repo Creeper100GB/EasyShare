@@ -32,4 +32,8 @@ public class DeviceAnnouncement
 
     [JsonPropertyName("announce")]
     public bool Announce { get; set; }
+
+    [JsonPropertyName("ip")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Ip { get; set; }
 }

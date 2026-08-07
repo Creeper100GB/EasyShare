@@ -58,6 +58,7 @@ public class FileSender : IDisposable
 
         _client = new HttpClient(handler);
         _client.Timeout = Timeout.InfiniteTimeSpan;
+        _client.DefaultRequestHeaders.ExpectContinue = false;
     }
 
     private async Task<string> CreateTempZipAsync(List<FileEntry> files, CancellationToken ct)
@@ -74,7 +75,7 @@ public class FileSender : IDisposable
                 if (file.LocalFilePath != null && File.Exists(file.LocalFilePath))
                 {
                     var entryName = file.FileName;
-                    zip.CreateEntryFromFile(file.LocalFilePath, entryName, CompressionLevel.Optimal);
+                    zip.CreateEntryFromFile(file.LocalFilePath, entryName, CompressionLevel.Fastest);
                 }
             }
         }, ct);
