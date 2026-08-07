@@ -5,8 +5,8 @@
   </ItemGroup>
 
   <PropertyGroup>
-    <TargetFramework>net10.0-windows</TargetFramework>
-    <TargetPlatform>windows</TargetPlatform>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.19041.0</TargetPlatformMinVersion>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
   </PropertyGroup>

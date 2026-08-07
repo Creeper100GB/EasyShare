@@ -124,5 +124,10 @@
   "App.CrashIntro": "An unexpected error occurred in EasyShare. Please report this incident including the following details:",
   "App.CrashCopy": "Copy",
   "App.CrashRestart": "Restart",
-  "App.CrashClose": "Continue"
+  "App.CrashClose": "Continue",
+  "Main.BluetoothDevice": "Bluetooth device",
+  "Transfer.Retrying": "Trying alternative connection ({0})...",
+  "Transfer.SwitchingBluetooth": "Switching to Bluetooth...",
+  "Transfer.RunningBluetooth": "Transferring via Bluetooth...",
+  "Transfer.ConnectionFailed": "Connection failed – check firewall or port 53317"
 }

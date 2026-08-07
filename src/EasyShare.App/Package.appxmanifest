@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+         xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+         xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10">
+  <Identity Name="EasyShare.Desktop" Publisher="CN=EasyShare" Version="1.0.0.0" />
+  <Properties>
+    <DisplayName>EasyShare</DisplayName>
+    <PublisherDisplayName>EasyShare</PublisherDisplayName>
+  </Properties>
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.19041.0" MaxVersionTested="10.0.19041.0" />
+  </Dependencies>
+  <Capabilities>
+    <rescap:Capability Name="bluetooth" />
+    <uap:Capability Name="privateNetworkClientServer" />
+  </Capabilities>
+</Package>

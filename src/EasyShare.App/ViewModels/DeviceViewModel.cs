@@ -18,6 +18,7 @@ public class DeviceViewModel : INotifyPropertyChanged
     private string _lastSeenText = string.Empty;
     private bool _isManual;
     private List<string> _allIpAddresses = [];
+    private string _bluetoothAddress = "";
 
     public string Alias
     {
@@ -90,6 +91,15 @@ public class DeviceViewModel : INotifyPropertyChanged
         get => _allIpAddresses;
         set => SetProperty(ref _allIpAddresses, value);
     }
+
+    public string BluetoothAddress
+    {
+        get => _bluetoothAddress;
+        set => SetProperty(ref _bluetoothAddress, value);
+    }
+
+    public bool HasBluetooth => !string.IsNullOrEmpty(_bluetoothAddress);
+    public bool HasWifi => !string.IsNullOrEmpty(_ipAddress);
 
     public event PropertyChangedEventHandler? PropertyChanged;
 

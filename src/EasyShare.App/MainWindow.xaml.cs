@@ -28,6 +28,7 @@ using EasyShare.App.Localization;
 using H.NotifyIcon;
 using Microsoft.Win32;
 using CoreProtocolType = EasyShare.Core.Models.ProtocolType;
+using EasyShare.App.Services;
 
 namespace EasyShare.App;
 
@@ -38,7 +39,9 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
     public static readonly System.Windows.Input.RoutedCommand QuitCommand = new();
     public static readonly System.Windows.Input.RoutedCommand DeselectCommand = new();
     private MulticastDiscovery? _discovery;
+    private BluetoothDiscovery? _btDiscovery;
     private LocalSendServer? _server;
+    private BluetoothServer? _btServer;
     private TrustStore? _trustStore;
     private SessionManager? _sessionManager;
     private TaskbarIcon? _trayIcon;
@@ -219,17 +222,25 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         _trustStore = new TrustStore();
         _sessionManager = new SessionManager();
         _discovery = new MulticastDiscovery(_config.MulticastAddress, _config.MulticastPort);
+        _btDiscovery = new BluetoothDiscovery();
         _server = new LocalSendServer(_certificate);
+        _btServer = new BluetoothServer();
 
         Task.Run(() => FirewallHelper.EnsureRules());
 
         _discovery.DeviceFound += OnDeviceFound;
         _discovery.DeviceSeen += OnDeviceSeen;
         _discovery.DeviceLost += OnDeviceLost;
+        _btDiscovery.DeviceFound += OnBtDeviceFound;
+        _btDiscovery.DeviceSeen += OnBtDeviceSeen;
+        _btDiscovery.DeviceLost += OnBtDeviceLost;
         _server.UploadRequested += OnUploadRequested;
         _server.UploadProgress += OnUploadProgress;
         _server.UploadCancelled += OnUploadCancelled;
         _server.UploadCompleted += OnUploadCompleted;
+        _btServer.UploadRequested += OnBtUploadRequested;
+        _btServer.UploadProgress += OnBtUploadProgress;
+        _btServer.UploadCompleted += OnBtUploadCompleted;
 
         RegisterContextMenu();
         StartNamedPipeListener();
@@ -288,7 +299,13 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
     {
         var self = BuildAnnouncement();
         _discovery?.Start(self);
+        _btDiscovery?.Start(self);
         _server?.Start(_config.HttpPort, _config.DeviceAlias, _fingerprint, _config.DefaultSavePath);
+        Task.Run(() =>
+        {
+            try { _btServer?.Start(_config.DeviceAlias, _fingerprint, _config.DefaultSavePath); }
+            catch { }
+        });
         StatusText.Text = Loc.Tr("Main.StatusReady");
     }
 
@@ -781,6 +798,39 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
                     {
                         continue;
                     }
+                }
+
+                if (!success && target.HasBluetooth && _btServer?.IsRunning == true && !cts.IsCancellationRequested)
+                {
+                    try
+                    {
+                        Dispatcher.Invoke(() =>
+                        {
+                            transfer.StatusText = Loc.Tr("Transfer.SwitchingBluetooth");
+                            transfer.Progress = 0;
+                        });
+
+                        var btSender = new BluetoothFileSender(
+                            _config.DeviceAlias, _fingerprint);
+                        btSender.ProgressChanged += (_, progress) =>
+                        {
+                            Dispatcher.BeginInvoke(() =>
+                            {
+                                transfer.Progress = progress;
+                                transfer.BytesText = $"{FormatBytes(btSender.BytesSent)} / {FormatBytes(btSender.TotalBytes)}";
+                                transfer.SpeedText = $"{FormatBytes((long)btSender.CurrentBytesPerSecond)}/s";
+                                transfer.EtaText = FormatEta(btSender.TotalBytes - btSender.BytesSent, btSender.CurrentBytesPerSecond);
+                                transfer.Status = TransferStatus.Active;
+                                transfer.StatusText = Loc.Tr("Transfer.RunningBluetooth");
+                            });
+                        };
+
+                        using (btSender)
+                            await btSender.SendAsync(session, target.BluetoothAddress, cts.Token);
+                        success = true;
+                    }
+                    catch (OperationCanceledException) { throw; }
+                    catch { }
                 }
 
                 if (!success && !cts.IsCancellationRequested)
@@ -1309,6 +1359,127 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         if (seconds >= 3600) return $"{seconds / 3600}h {seconds % 3600 / 60}m";
         if (seconds >= 60) return $"{seconds / 60}m {seconds % 60}s";
         return $"{seconds}s";
+    }
+
+    private void OnBtDeviceFound(object? sender, DeviceInfo device)
+    {
+        try
+        {
+            Dispatcher.Invoke(() =>
+            {
+                var existing = Devices.FirstOrDefault(d =>
+                    !string.IsNullOrEmpty(d.BluetoothAddress) && d.BluetoothAddress == device.BluetoothAddress);
+                if (existing is not null) return;
+
+                existing = Devices.FirstOrDefault(d =>
+                    !string.IsNullOrEmpty(d.Fingerprint) && d.Fingerprint.StartsWith(device.Fingerprint));
+                if (existing is not null)
+                {
+                    if (!string.IsNullOrEmpty(device.BluetoothAddress))
+                        existing.BluetoothAddress = device.BluetoothAddress;
+                    return;
+                }
+
+                Devices.Add(new DeviceViewModel
+                {
+                    Alias = device.Alias,
+                    DeviceModel = Loc.Tr("Main.BluetoothDevice"),
+                    IpAddress = "",
+                    DeviceType = Core.Models.DeviceType.Desktop,
+                    Fingerprint = device.Fingerprint,
+                    Port = device.Port,
+                    BluetoothAddress = device.BluetoothAddress,
+                    LastSeen = DateTime.UtcNow,
+                    IsOnline = true,
+                });
+
+                StatusText.Text = Loc.Tr("Main.StatusDevicesFound", Devices.Count);
+            });
+        }
+        catch { }
+    }
+
+    private void OnBtDeviceSeen(object? sender, DeviceInfo device)
+    {
+        try
+        {
+            Dispatcher.Invoke(() =>
+            {
+                var existing = Devices.FirstOrDefault(d =>
+                    d.BluetoothAddress == device.BluetoothAddress ||
+                    d.Fingerprint.StartsWith(device.Fingerprint));
+                if (existing is not null)
+                    existing.LastSeen = device.LastSeen;
+            });
+        }
+        catch { }
+    }
+
+    private void OnBtDeviceLost(object? sender, string btAddress)
+    {
+        try
+        {
+            Dispatcher.Invoke(() =>
+            {
+                var existing = Devices.FirstOrDefault(d => d.BluetoothAddress == btAddress);
+                if (existing is not null && string.IsNullOrEmpty(existing.IpAddress))
+                {
+                    Devices.Remove(existing);
+                    if (_selectedDevice == existing)
+                        ClearSelection();
+                }
+                StatusText.Text = Devices.Count > 0
+                    ? Loc.Tr("Main.StatusDevicesFound", Devices.Count)
+                    : Loc.Tr("Main.StatusReady");
+                UpdateSelectedDeviceText();
+            });
+        }
+        catch { }
+    }
+
+    private void OnBtUploadRequested(object? sender, BluetoothUploadRequestEventArgs e)
+    {
+        Dispatcher.Invoke(() =>
+        {
+            var files = e.Files.Select(f => new FileEntry
+            {
+                Id = f.Id,
+                FileName = f.FileName,
+                Size = f.Size,
+            }).ToList();
+
+            var dialog = new Views.ReceiveDialog(e.SenderAlias, files, e.Fingerprint);
+            dialog.Owner = this;
+
+            var result = dialog.ShowDialog();
+            if (result == true && dialog.Accepted)
+                _btServer?.AcceptUpload(e.SessionId);
+            else
+                _btServer?.RejectUpload(e.SessionId);
+        });
+    }
+
+    private void OnBtUploadProgress(object? sender, BluetoothProgressEventArgs e)
+    {
+        Dispatcher.BeginInvoke(() =>
+        {
+            StatusText.Text = Loc.Tr("Main.StatusReceivingFrom", "Bluetooth");
+        });
+    }
+
+    private void OnBtUploadCompleted(object? sender, BluetoothCompletedEventArgs e)
+    {
+        Dispatcher.Invoke(() =>
+        {
+            History.Insert(0, new HistoryEntry
+            {
+                FileName = e.FileName,
+                Direction = "<-",
+                Timestamp = DateTime.Now,
+                Path = e.SavePath,
+            });
+            StatusText.Text = Loc.Tr("Main.StatusReceived", e.FileName);
+        });
     }
 }
 

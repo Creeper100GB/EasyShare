@@ -13,4 +13,6 @@ public record DeviceInfo
     public string IpAddress { get; init; } = string.Empty;
     public DateTime LastSeen { get; init; }
     public List<string> AllIpAddresses { get; init; } = [];
+    public string BluetoothAddress { get; init; } = "";
+    public bool HasBluetooth => !string.IsNullOrEmpty(BluetoothAddress);
 }
