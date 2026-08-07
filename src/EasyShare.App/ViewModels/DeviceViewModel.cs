@@ -16,6 +16,7 @@ public class DeviceViewModel : INotifyPropertyChanged
     private DateTime _lastSeen = DateTime.MinValue;
     private bool _isOnline;
     private string _lastSeenText = string.Empty;
+    private bool _isManual;
 
     public string Alias
     {
@@ -75,6 +76,12 @@ public class DeviceViewModel : INotifyPropertyChanged
     {
         get => _lastSeenText;
         set => SetProperty(ref _lastSeenText, value);
+    }
+
+    public bool IsManual
+    {
+        get => _isManual;
+        set => SetProperty(ref _isManual, value);
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;

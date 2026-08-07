@@ -1,0 +1,43 @@
+<wpfui:FluentWindow x:Class="EasyShare.App.Views.AddDeviceDialog"
+  xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+  xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+  xmlns:wpfui="http://schemas.lepo.co/wpfui/2022/xaml"
+  xmlns:loc="clr-namespace:EasyShare.App.Localization"
+  Title="{Binding [Add.DeviceTitle], Source={x:Static loc:Loc.Instance}}"
+  Width="420" Height="Auto" SizeToContent="Height"
+  WindowBackdropType="Mica" ExtendsContentIntoTitleBar="True"
+  ResizeMode="NoResize" WindowStartupLocation="CenterOwner">
+
+  <Grid Margin="24">
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto"/>
+      <RowDefinition Height="Auto"/>
+      <RowDefinition Height="Auto"/>
+      <RowDefinition Height="Auto"/>
+      <RowDefinition Height="Auto"/>
+    </Grid.RowDefinitions>
+
+    <wpfui:TitleBar Grid.Row="0" Title="{Binding [Add.DeviceTitle], Source={x:Static loc:Loc.Instance}}"/>
+
+    <TextBlock Grid.Row="1" Text="{Binding [Add.DeviceHint], Source={x:Static loc:Loc.Instance}}"
+               FontSize="12" Foreground="{DynamicResource TextSecondary}" Margin="0,12,0,0" TextWrapping="Wrap"/>
+
+    <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,12,0,0">
+      <TextBlock Text="{Binding [Add.IpLabel], Source={x:Static loc:Loc.Instance}}" FontSize="13"
+                 VerticalAlignment="Center" Margin="0,0,8,0"/>
+      <TextBox x:Name="IpTextBox" Width="180" FontSize="13" VerticalContentAlignment="Center"/>
+      <TextBlock Text="{Binding [Add.PortLabel], Source={x:Static loc:Loc.Instance}}" FontSize="13"
+                 VerticalAlignment="Center" Margin="12,0,8,0"/>
+      <TextBox x:Name="PortTextBox" Width="70" FontSize="13" VerticalContentAlignment="Center" Text="53317"/>
+    </StackPanel>
+
+    <TextBlock Grid.Row="3" x:Name="StatusText" FontSize="12" Margin="0,8,0,0" TextWrapping="Wrap"/>
+
+    <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
+      <Button x:Name="CancelButton" Content="{Binding [Add.Cancel], Source={x:Static loc:Loc.Instance}}"
+              Padding="14,6" Margin="0,0,8,0" Click="Cancel_Click" IsEnabled="True"/>
+      <Button x:Name="ConnectButton" Content="{Binding [Add.Connect], Source={x:Static loc:Loc.Instance}}"
+              Padding="14,6" Click="Connect_Click"/>
+    </StackPanel>
+  </Grid>
+</wpfui:FluentWindow>

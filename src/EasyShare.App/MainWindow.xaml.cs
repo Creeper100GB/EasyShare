@@ -111,6 +111,11 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         var now = DateTime.UtcNow;
         foreach (var device in Devices)
         {
+            if (device.IsManual)
+            {
+                device.IsOnline = true;
+                continue;
+            }
             var age = now - device.LastSeen;
             device.IsOnline = age < TimeSpan.FromSeconds(30);
             device.LastSeenText = FormatLastSeen(age);
@@ -482,6 +487,49 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
             });
         }
         catch { }
+    }
+
+    private void AddDeviceButton_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new Views.AddDeviceDialog { Owner = this };
+        if (dialog.ShowDialog() != true || string.IsNullOrEmpty(dialog.Fingerprint))
+            return;
+
+        var existing = Devices.FirstOrDefault(d => d.Fingerprint == dialog.Fingerprint);
+        if (existing is not null)
+        {
+            existing.Alias = dialog.DeviceAlias;
+            existing.IpAddress = dialog.IpAddress;
+            existing.Port = dialog.Port;
+            existing.LastSeen = DateTime.UtcNow;
+            existing.IsOnline = true;
+            existing.IsManual = true;
+            _selectedDevice = existing;
+            UpdateSelectedDeviceText();
+            return;
+        }
+
+        var device = new DeviceViewModel
+        {
+            Alias = dialog.DeviceAlias,
+            DeviceModel = dialog.DeviceModel,
+            IpAddress = dialog.IpAddress,
+            DeviceType = DeviceType.Desktop,
+            Fingerprint = dialog.Fingerprint,
+            Port = dialog.Port,
+            LastSeen = DateTime.UtcNow,
+            IsOnline = true,
+            IsManual = true,
+        };
+        Devices.Add(device);
+        _selectedDevice = device;
+        foreach (var item in DeviceList.Items)
+        {
+            if (item is DeviceViewModel d)
+                d.IsSelected = d.Fingerprint == device.Fingerprint;
+        }
+        UpdateSelectedDeviceText();
+        StatusText.Text = Loc.Tr("Main.StatusDevicesFound", Devices.Count);
     }
 
     private void DeviceCard_Click(object sender, MouseButtonEventArgs e)

@@ -204,7 +204,12 @@
       </Grid.ColumnDefinitions>
 
       <StackPanel Grid.Column="0" Margin="0,0,8,0">
-        <TextBlock Text="{Binding [Main.DevicesHeader], Source={x:Static loc:Loc.Instance}}" FontSize="16" FontWeight="SemiBold" Margin="4,0,4,8"/>
+        <DockPanel Margin="4,0,4,8">
+          <TextBlock Text="{Binding [Main.DevicesHeader], Source={x:Static loc:Loc.Instance}}" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center"/>
+          <Button x:Name="AddDeviceButton" Content="&#x2B;" Padding="6,0" FontSize="14" Width="28" Height="28"
+                  HorizontalAlignment="Right" VerticalAlignment="Center" Click="AddDeviceButton_Click"
+                  ToolTip="{Binding [Main.AddDeviceTooltip], Source={x:Static loc:Loc.Instance}}"/>
+        </DockPanel>
         <ScrollViewer MaxHeight="220" VerticalScrollBarVisibility="Auto">
           <StackPanel>
             <ItemsControl x:Name="DeviceList" ItemTemplate="{StaticResource DeviceTemplate}"/>

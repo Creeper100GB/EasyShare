@@ -77,7 +77,10 @@ public class MulticastDiscovery : IDisposable
             {
                 if (ua.Address.AddressFamily != AddressFamily.InterNetwork) continue;
                 if (IPAddress.IsLoopback(ua.Address)) continue;
-                if (ua.Address.GetAddressBytes()[0] == 169) continue; // APIPA / link-local ohne Netz
+                var bytes = ua.Address.GetAddressBytes();
+                // Link-local (169.254.x.x, z.B. Thunderbolt/USB-Bridge-Kabel) erlauben,
+                // nur "normales" APIPA ohne Netz verwerfen.
+                if (bytes[0] == 169 && bytes[1] != 254) continue;
 
                 result.Add(ua.Address);
             }
