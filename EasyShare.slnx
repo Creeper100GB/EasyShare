@@ -8,5 +8,6 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/EasyShare.Core.Tests/EasyShare.Core.Tests.csproj" Type="Test" />
+    <Project Path="tests/EasyShare.IntegrationTests/EasyShare.IntegrationTests.csproj" Type="Application" />
   </Folder>
 </Solution>

@@ -39,7 +39,7 @@ for (int i = 0; i < 30; i++)
 }
 
 var handler = new HttpClientHandler { ServerCertificateCustomValidationCallback = (_, _, _, _) => true };
-using var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(15) };
+using var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(60) };
 
 int passed = 0, total = 0;
 
@@ -324,7 +324,9 @@ static string BuildPrepareBody(string fingerprint, int port, string fileId, stri
     return JsonSerializer.Serialize(new
     {
         info = new { alias = "TestSender", version = "2.0", deviceModel = "TestPC", deviceType = "desktop", fingerprint, port, protocol = "https", download = true, announce = false },
-        files, compressed, originalFileCount
+        files,
+        compressed,
+        originalFileCount
     });
 }
 

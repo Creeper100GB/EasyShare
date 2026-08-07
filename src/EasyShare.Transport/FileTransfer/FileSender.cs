@@ -241,10 +241,20 @@ public class FileSender : IDisposable
         }
 
         public override bool CanRead => _inner.CanRead;
-        public override bool CanSeek => false;
+        public override bool CanSeek => _inner.CanSeek;
         public override bool CanWrite => false;
         public override long Length => _inner.Length;
-        public override long Position { get => _inner.Position; set => throw new NotSupportedException(); }
+        public override long Position
+        {
+            get => _inner.Position;
+            set
+            {
+                if (value != 0)
+                    throw new NotSupportedException("Seeking beyond position 0 is not supported during upload.");
+                if (_inner.Position != 0)
+                    _inner.Seek(0, SeekOrigin.Begin);
+            }
+        }
 
         public override int Read(byte[] buffer, int offset, int count)
         {
@@ -268,7 +278,15 @@ public class FileSender : IDisposable
         }
 
         public override void Flush() => _inner.Flush();
-        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override long Seek(long offset, SeekOrigin origin)
+        {
+            if (offset == 0 && origin == SeekOrigin.Begin)
+            {
+                var result = _inner.Seek(0, SeekOrigin.Begin);
+                return result;
+            }
+            throw new NotSupportedException("Seeking beyond position 0 is not supported during upload.");
+        }
         public override void SetLength(long value) => throw new NotSupportedException();
         public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
         protected override void Dispose(bool disposing)

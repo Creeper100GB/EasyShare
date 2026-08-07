@@ -28,6 +28,9 @@ jobs:
       - name: Test
         run: dotnet test -c Release --nologo
 
+      - name: Integration tests
+        run: dotnet run --project tests/EasyShare.IntegrationTests -c Release --nologo
+
       - name: Publish (self-contained win-x64)
         run: |
           dotnet publish src/EasyShare.App/EasyShare.App.csproj `

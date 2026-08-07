@@ -619,9 +619,12 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
 
         var deviceInfo = new DeviceInfo
         {
-            Alias = target.Alias, DeviceModel = target.DeviceModel,
-            DeviceType = target.DeviceType, Fingerprint = target.Fingerprint,
-            IpAddress = target.IpAddress, Port = target.Port,
+            Alias = target.Alias,
+            DeviceModel = target.DeviceModel,
+            DeviceType = target.DeviceType,
+            Fingerprint = target.Fingerprint,
+            IpAddress = target.IpAddress,
+            Port = target.Port,
         };
 
         var session = _sessionManager.CreateSendSession(deviceInfo, filePaths.ToList());
@@ -637,7 +640,10 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         var transfer = new TransferViewModel
         {
             FileName = filePaths.Length == 1 ? Path.GetFileName(filePaths[0]) : Loc.Tr("Transfer.FilesTo", filePaths.Length, target.Alias),
-            Progress = 0, SpeedText = string.Empty, StatusText = Loc.Tr("Transfer.Preparing"), Status = TransferStatus.Pending,
+            Progress = 0,
+            SpeedText = string.Empty,
+            StatusText = Loc.Tr("Transfer.Preparing"),
+            Status = TransferStatus.Pending,
             CanCancel = true,
         };
 
@@ -801,7 +807,10 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
             FileName = e.Compressed
                 ? Loc.Tr("Transfer.FilesFromCompressed", e.OriginalFileCount, e.Sender.Alias)
                 : e.Files.Count == 1 ? e.Files[0].FileName : Loc.Tr("Transfer.FilesFrom", e.Files.Count, e.Sender.Alias),
-            Progress = 0, SpeedText = string.Empty, StatusText = Loc.Tr("Transfer.Running"), Status = TransferStatus.Active,
+            Progress = 0,
+            SpeedText = string.Empty,
+            StatusText = Loc.Tr("Transfer.Running"),
+            Status = TransferStatus.Active,
             CanCancel = true,
         };
 

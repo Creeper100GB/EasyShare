@@ -12,7 +12,13 @@ build:
 test:
     dotnet test tests/EasyShare.Core.Tests/EasyShare.Core.Tests.csproj -c Release
 
-check: build test
+integration:
+    dotnet run --project tests/EasyShare.IntegrationTests/EasyShare.IntegrationTests.csproj -c Release
+
+lint:
+    dotnet format EasyShare.slnx --verify-no-changes
+
+check: build test integration lint
 
 install:
     powershell -ExecutionPolicy Bypass -File ./install.ps1
