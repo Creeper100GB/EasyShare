@@ -26,6 +26,8 @@
     </Border>
 
     <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
+      <Button Padding="16,6" Margin="0,0,8,0" Click="OpenLogs_Click"
+              Content="Logs öffnen"/>
       <Button Padding="16,6" Margin="0,0,8,0" Click="Copy_Click"
               Content="{Binding [App.CrashCopy], Source={x:Static loc:Loc.Instance}}"/>
       <Button Padding="16,6" Margin="0,0,8,0" Click="Restart_Click"

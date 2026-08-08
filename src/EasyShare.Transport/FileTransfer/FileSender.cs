@@ -6,12 +6,17 @@ using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Text.Json;
+using EasyShare.Core.Logging;
 using EasyShare.Core.Models;
+using Serilog;
 
 namespace EasyShare.Transport.FileTransfer;
 
 public class FileSender : IDisposable
 {
+    private static readonly Serilog.ILogger Log = EasyLogger.Log.ForContext("SourceContext", "FileSender");
+    private static readonly TimeSpan IdleTimeout = TimeSpan.FromSeconds(30);
+
     private readonly string _apiBase;
     private readonly string _targetFingerprint;
     private readonly int _targetPort;
@@ -25,6 +30,7 @@ public class FileSender : IDisposable
     private long _lastSpeedBytes;
     private long _lastSpeedTimestamp;
     private long _lastProgressTicks;
+    private CancellationTokenSource? _idleCts;
 
     public double CurrentBytesPerSecond { get; private set; }
     public long TotalBytes => _totalBytes;
@@ -51,7 +57,7 @@ public class FileSender : IDisposable
         }
         else
         {
-            System.Diagnostics.Debug.WriteLine("[EasyShare] Warnung: TLS deaktiviert - Verbindung wird ohne Zertifikatsvalidierung aufgebaut.");
+            Log.Warning("TLS deaktiviert - Verbindung ohne Zertifikatsvalidierung an {TargetIp}", targetIp);
         }
 
         handler.UseProxy = false;
@@ -60,6 +66,8 @@ public class FileSender : IDisposable
         _client = new HttpClient(handler);
         _client.Timeout = Timeout.InfiniteTimeSpan;
         _client.DefaultRequestHeaders.ExpectContinue = false;
+
+        Log.Debug("FileSender erstellt: {TargetIp}:{TargetPort}, TLS={UseTls}", targetIp, targetPort, useTls);
     }
 
     private async Task<string> CreateTempZipAsync(List<FileEntry> files, CancellationToken ct)
@@ -67,6 +75,8 @@ public class FileSender : IDisposable
         var tempDir = Path.Combine(Path.GetTempPath(), "EasyShare", "zip");
         Directory.CreateDirectory(tempDir);
         var zipPath = Path.Combine(tempDir, $"EasyShare_{Guid.NewGuid():N}.zip");
+
+        Log.Debug("Erstelle Temp-Zip: {Count} Dateien", files.Count);
 
         await Task.Run(() =>
         {
@@ -106,6 +116,13 @@ public class FileSender : IDisposable
         var scheme = _useTls ? "https" : "http";
         var baseUrl = $"{scheme}://{_targetIp}:{_targetPort}";
 
+        Log.Information("Transfer starten: {TargetIp}:{TargetPort}, {FileCount} Dateien, {TotalSize} Bytes",
+            _targetIp, _targetPort, files.Count, files.Sum(f => f.Size));
+
+        _idleCts = new CancellationTokenSource();
+        _idleCts.CancelAfter(IdleTimeout);
+        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct, _idleCts.Token);
+
         string? tempZipPath = null;
         var compressed = session.ContainsFolders || (compress && files.Count > 1);
         var originalFileCount = files.Count;
@@ -113,7 +130,7 @@ public class FileSender : IDisposable
         {
             if (compressed)
             {
-                tempZipPath = await CreateTempZipAsync(files, ct);
+                tempZipPath = await CreateTempZipAsync(files, linkedCts.Token);
                 var entryFileName = session.ZipName is not null
                     ? $"{session.ZipName}.zip"
                     : Path.GetFileName(tempZipPath);
@@ -128,9 +145,11 @@ public class FileSender : IDisposable
 
             _totalBytes = files.Sum(f => f.Size);
 
-            var prepare = await PrepareUploadAsync(baseUrl, files, ct, compressed, originalFileCount);
+            Log.Debug("Prepare-Upload an {BaseUrl}", baseUrl);
+            var prepare = await PrepareUploadAsync(baseUrl, files, linkedCts.Token, compressed, originalFileCount);
             if (prepare is null || prepare.Files.Count == 0)
             {
+                Log.Warning("Upload abgelehnt/Timeout von {TargetIp}", _targetIp);
                 StatusChanged?.Invoke(this, TransferStatus.Rejected);
                 LastStatus = TransferStatus.Rejected;
                 return;
@@ -140,36 +159,53 @@ public class FileSender : IDisposable
             {
                 var file = files[i];
                 var token = prepare.Files.TryGetValue(file.Id, out var t) ? t : throw new KeyNotFoundException($"Server did not return token for file {file.Id}");
-                await UploadFileAsync(baseUrl, prepare.SessionId, file, token, ct);
+                Log.Debug("Upload Datei {FileId} ({FileName}, {Size} Bytes) an {BaseUrl}", file.Id, file.FileName, file.Size, baseUrl);
+                await UploadFileAsync(baseUrl, prepare.SessionId, file, token, linkedCts.Token);
             }
 
+            Log.Information("Transfer erfolgreich: {BytesSent} Bytes an {TargetIp}", _bytesSent, _targetIp);
             ProgressChanged?.Invoke(this, 1.0);
             StatusChanged?.Invoke(this, TransferStatus.Completed);
             LastStatus = TransferStatus.Completed;
         }
+        catch (OperationCanceledException) when (_idleCts.IsCancellationRequested && !ct.IsCancellationRequested)
+        {
+            Log.Warning("Idle-Timeout: keine Daten fuer {Timeout}s an {TargetIp}", IdleTimeout.TotalSeconds, _targetIp);
+            WasConnectionError = true;
+            StatusChanged?.Invoke(this, TransferStatus.ConnectionFailed);
+            LastStatus = TransferStatus.ConnectionFailed;
+            throw new HttpRequestException($"Transfer gestoppt - keine Daten fuer {IdleTimeout.TotalSeconds:0}s empfangen (Idle-Timeout)");
+        }
         catch (OperationCanceledException)
         {
+            Log.Information("Transfer vom Nutzer abgebrochen an {TargetIp} ({BytesSent} Bytes gesendet)", _targetIp, _bytesSent);
             StatusChanged?.Invoke(this, TransferStatus.Cancelled);
             LastStatus = TransferStatus.Cancelled;
             throw;
         }
-        catch (HttpRequestException)
+        catch (HttpRequestException ex)
         {
+            Log.Error(ex, "Verbindungsfehler an {TargetIp} ({BytesSent} Bytes gesendet)", _targetIp, _bytesSent);
             WasConnectionError = true;
             StatusChanged?.Invoke(this, TransferStatus.ConnectionFailed);
             LastStatus = TransferStatus.ConnectionFailed;
             throw;
         }
-        catch
+        catch (Exception ex)
         {
+            Log.Error(ex, "Transfer fehlgeschlagen an {TargetIp} ({BytesSent}/{TotalBytes} Bytes)", _targetIp, _bytesSent, _totalBytes);
             StatusChanged?.Invoke(this, TransferStatus.Failed);
             LastStatus = TransferStatus.Failed;
             throw;
         }
         finally
         {
+            _idleCts.Cancel();
+            _idleCts.Dispose();
+            _idleCts = null;
             if (tempZipPath != null && File.Exists(tempZipPath))
-                try { File.Delete(tempZipPath); } catch { }
+                try { File.Delete(tempZipPath); }
+                catch (Exception ex) { Log.Debug(ex, "Temp-Zip Cleanup fehlgeschlagen: {Path}", tempZipPath); }
         }
     }
 
@@ -188,7 +224,10 @@ public class FileSender : IDisposable
         using var response = await _client.PostAsync($"{baseUrl}{_apiBase}/prepare-upload", content, ct);
 
         if ((int)response.StatusCode is 403 or 408)
+        {
+            Log.Debug("Prepare-Upload Antwort: {StatusCode} von {BaseUrl}", response.StatusCode, baseUrl);
             return null;
+        }
 
         response.EnsureSuccessStatusCode();
 
@@ -208,7 +247,15 @@ public class FileSender : IDisposable
 
         using var response = await _client.PostAsync($"{baseUrl}{_apiBase}/upload", form, ct);
         if ((int)response.StatusCode == 499)
+        {
+            Log.Warning("Upload von {FileName} abgebrochen durch Empfaenger (HTTP 499)", file.FileName);
             throw new OperationCanceledException("Receiver cancelled the upload");
+        }
+        if (!response.IsSuccessStatusCode)
+        {
+            var body = await response.Content.ReadAsStringAsync(ct);
+            Log.Error("Upload von {FileName} fehlgeschlagen: HTTP {StatusCode} - {Body}", file.FileName, (int)response.StatusCode, body);
+        }
         response.EnsureSuccessStatusCode();
     }
 
@@ -216,6 +263,8 @@ public class FileSender : IDisposable
     {
         if (bytes <= 0) return;
         _bytesSent += bytes;
+
+        _idleCts?.CancelAfter(IdleTimeout);
 
         var now = Stopwatch.GetTimestamp();
         var elapsedSeconds = (now - _lastSpeedTimestamp) / (double)Stopwatch.Frequency;

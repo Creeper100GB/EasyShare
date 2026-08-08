@@ -1,9 +1,12 @@
 using System.Diagnostics;
+using EasyShare.Core.Logging;
+using Serilog;
 
 namespace EasyShare.Core.Services;
 
 public static class FirewallHelper
 {
+    private static readonly Serilog.ILogger Log = EasyLogger.Log.ForContext("SourceContext", "FirewallHelper");
     public static bool RuleExists()
     {
         try
@@ -45,7 +48,7 @@ public static class FirewallHelper
         }
         catch
         {
-            Debug.WriteLine("[EasyShare] Firewall-Regeln konnten nicht erstellt werden (UAC abgelehnt).");
+            Log.Warning("Firewall-Regeln konnten nicht erstellt werden (UAC abgelehnt).");
         }
     }
 }

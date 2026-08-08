@@ -6,7 +6,9 @@ using System.Text.Json;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Net.Http.Headers;
 using EasyShare.Core;
+using EasyShare.Core.Logging;
 using EasyShare.Core.Models;
+using Serilog;
 
 namespace EasyShare.Transport.Server;
 
@@ -47,6 +49,8 @@ public class UploadCompletedEventArgs : EventArgs
 
 public class LocalSendServer
 {
+    private static readonly Serilog.ILogger Log = EasyLogger.Log.ForContext("SourceContext", "LocalSendServer");
+
     public event EventHandler<UploadRequestEventArgs>? UploadRequested;
     public event EventHandler<UploadProgressEventArgs>? UploadProgress;
     public event EventHandler<UploadCancelledEventArgs>? UploadCancelled;
@@ -89,6 +93,7 @@ public class LocalSendServer
         _fingerprint = fingerprint;
         _savePath = savePath;
         _cts = new CancellationTokenSource();
+        Log.Information("Server starten auf Port {Port}, Alias={Alias}", port, alias);
         Task.Run(() => RunAsync(_cts.Token));
     }
 
@@ -299,6 +304,9 @@ public class LocalSendServer
 
             lock (_lock) _pending[sessionId] = pending;
 
+            Log.Information("Upload-Anfrage von {SenderAlias} ({Fingerprint}): {FileCount} Dateien, {TotalSize} Bytes",
+                sender.Alias ?? "???", sender.Fingerprint, pending.Files.Count, pending.Files.Sum(f => f.Size));
+
             UploadRequested?.Invoke(this, new UploadRequestEventArgs
             {
                 SessionId = sessionId,
@@ -427,14 +435,16 @@ public class LocalSendServer
             {
                 try { File.Delete(filePath); } catch { }
                 CleanupSession(sessionId, pending);
+                Log.Warning("Upload abgebrochen: Session={SessionId}, Datei={FileName}", sessionId, safeName);
                 UploadCancelled?.Invoke(this, new UploadCancelledEventArgs { SessionId = sessionId, FileName = safeName });
                 return Results.StatusCode(499);
             }
-            catch
+            catch (Exception ex)
             {
                 try { File.Delete(filePath); } catch { }
                 CleanupSession(sessionId, pending);
-                return Results.StatusCode(500);
+                Log.Error(ex, "Upload-Fehler: Session={SessionId}, Datei={FileName}, Bytes={Bytes}", sessionId, safeName, bytesReceived);
+                return Results.Problem(detail: ex.Message, statusCode: 500);
             }
             finally
             {
@@ -452,6 +462,7 @@ public class LocalSendServer
             if (complete)
             {
                 CleanupSession(sessionId, pending);
+                Log.Information("Upload vollstaendig: Session={SessionId}, Datei={FileName}, {Bytes} Bytes", sessionId, safeName, writeSucceeded ? bytesReceived : 0);
                 UploadCompleted?.Invoke(this, new UploadCompletedEventArgs
                 {
                     SessionId = sessionId,

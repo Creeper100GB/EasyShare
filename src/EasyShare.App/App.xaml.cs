@@ -1,7 +1,9 @@
 using System.IO;
 using System.Windows;
 using EasyShare.App.Localization;
+using EasyShare.Core.Logging;
 using EasyShare.Shell;
+using Serilog;
 
 namespace EasyShare.App;
 
@@ -12,12 +14,12 @@ public partial class App : Application
 
     protected override void OnStartup(StartupEventArgs e)
     {
+        EasyLogger.Init();
+
         _singleInstanceMutex = new System.Threading.Mutex(true, @"Local\EasyShare.SingleInstance", out bool createdNew);
 
         if (!createdNew)
         {
-            // Abandoned-Mutex-Szenario (z.B. nach taskkill durch das Update-Skript):
-            // Der alte Prozess hielt den Mutex, wurde aber hart beendet -> versuchen zu übernehmen.
             bool acquired;
             try { acquired = _singleInstanceMutex.WaitOne(TimeSpan.Zero); }
             catch (System.Threading.AbandonedMutexException) { acquired = true; }
@@ -29,7 +31,7 @@ public partial class App : Application
                     _ = Task.Run(async () =>
                     {
                         try { await NamedPipeServer.SendFilesAsync(e.Args); }
-                        catch { }
+                        catch (Exception ex) { Log.Warning(ex, "NamedPipe SendFilesAsync fehlgeschlagen (zweiter Instanz)"); }
                     });
                 }
                 else
@@ -48,7 +50,7 @@ public partial class App : Application
 
         DispatcherUnhandledException += (s, ex) =>
         {
-            System.Console.Error.WriteLine($"[EasyShare] Unbehandelte Ausnahme: {ex.Exception}");
+            Log.Fatal(ex.Exception, "Unbehandelte Ausnahme");
             try
             {
                 var dialog = new Views.CrashDialog(ex.Exception);
@@ -62,13 +64,13 @@ public partial class App : Application
                     return;
                 }
             }
-            catch { }
+            catch (Exception crashEx) { Log.Error(crashEx, "CrashDialog fehlgeschlagen"); }
             ex.Handled = true;
         };
 
         AppDomain.CurrentDomain.UnhandledException += (s, e) =>
         {
-            System.Console.Error.WriteLine($"[EasyShare] Schwerwiegende Ausnahme: {e.ExceptionObject}");
+            Log.Fatal(e.ExceptionObject as Exception, "Schwerwiegende Ausnahme (AppDomain)");
         };
     }
 

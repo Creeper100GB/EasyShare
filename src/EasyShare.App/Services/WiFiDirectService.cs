@@ -1,11 +1,15 @@
 using System.Net;
 using Windows.Devices.WiFiDirect;
 using Windows.Networking;
+using EasyShare.Core.Logging;
+using Serilog;
 
 namespace EasyShare.App.Services;
 
 public class WiFiDirectService : IDisposable
 {
+    private static readonly ILogger Log = EasyLogger.Log.ForContext<WiFiDirectService>();
+
     public bool IsSupported { get; private set; }
     private WiFiDirectDevice? _connected;
 
@@ -27,6 +31,7 @@ public class WiFiDirectService : IDisposable
         if (!IsSupported) return null;
         try
         {
+            Log.Information("WiFi Direct Verbindung zu {DeviceId}", deviceId);
             var device = await WiFiDirectDevice.FromIdAsync(deviceId).AsTask(ct);
             if (device is null) return null;
             _connected = device;
@@ -44,8 +49,9 @@ public class WiFiDirectService : IDisposable
             if (first?.RemoteHostName is null) return null;
             return (first.RemoteHostName.RawName ?? "", first.LocalHostName?.RawName ?? "");
         }
-        catch
+        catch (Exception ex)
         {
+            Log.Warning(ex, "WiFi Direct Verbindung fehlgeschlagen");
             return null;
         }
     }

@@ -68,8 +68,10 @@
           <StackPanel Margin="8,12,8,8">
             <CheckBox x:Name="AutoStartCheckBox" Content="{Binding [Settings.AutoStart], Source={x:Static loc:Loc.Instance}}" Margin="0,0,0,12"/>
             <StackPanel Orientation="Horizontal">
-              <Button x:Name="ContextMenuButton" Padding="12,6" Click="ContextMenuButton_Click"/>
+              <Button x:Name="ContextMenuButton" Padding="12,6" Click="ContextMenuButton_Click" Margin="0,0,8,0"/>
+              <Button Padding="12,6" Click="OpenLogs_Click" Content="Logs öffnen"/>
             </StackPanel>
+            <TextBlock x:Name="WifiInfoText" Margin="0,16,0,0" FontSize="12" TextWrapping="Wrap" Foreground="Gray"/>
           </StackPanel>
         </ScrollViewer>
       </TabItem>

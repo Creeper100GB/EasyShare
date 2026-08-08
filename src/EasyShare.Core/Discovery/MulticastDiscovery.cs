@@ -4,12 +4,16 @@ using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
+using EasyShare.Core.Logging;
 using EasyShare.Core.Models;
+using Serilog;
 
 namespace EasyShare.Core.Discovery;
 
 public class MulticastDiscovery : IDisposable
 {
+    private static readonly ILogger Log = EasyLogger.Log.ForContext<MulticastDiscovery>();
+
     private readonly string _multicastAddress;
     private readonly int _port;
     private UdpClient? _client;
@@ -39,6 +43,11 @@ public class MulticastDiscovery : IDisposable
         _cts = new CancellationTokenSource();
         _localAddresses = GetLocalIpv4Addresses();
         _localSubnets = GetLocalIpv4Subnets();
+
+        Log.Information("Discovery starten: Multicast={Address}:{Port}, {Count} lokale IPs",
+            _multicastAddress, _port, _localAddresses.Count);
+        foreach (var addr in _localAddresses)
+            Log.Debug("  Lokale IP: {Ip}", addr);
 
         _client = new UdpClient();
         _client.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
@@ -256,7 +265,11 @@ public class MulticastDiscovery : IDisposable
 
                 DeviceSeen?.Invoke(this, info);
                 if (isNewOrChanged)
+                {
+                    Log.Information("Geraet gefunden: {Alias} ({Fingerprint}) IP={Ip}, Model={Model}, Version={Version}",
+                        announcement.Alias, announcement.Fingerprint, announcedIp, announcement.DeviceModel, announcement.Version);
                     DeviceFound?.Invoke(this, info);
+                }
             }
             catch (OperationCanceledException)
             {
@@ -279,6 +292,7 @@ public class MulticastDiscovery : IDisposable
         foreach (var fp in stale)
         {
             _knownDevices.TryRemove(fp, out _);
+            Log.Information("Geraet verloren: {Fingerprint}", fp);
             DeviceLost?.Invoke(this, fp);
         }
     }

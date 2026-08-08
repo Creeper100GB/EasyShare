@@ -7,12 +7,16 @@ using Windows.Devices.Bluetooth;
 using Windows.Devices.Bluetooth.Rfcomm;
 using Windows.Networking.Sockets;
 using Windows.Storage.Streams;
+using EasyShare.Core.Logging;
 using EasyShare.Core.Models;
+using Serilog;
 
 namespace EasyShare.App.Services;
 
 public class BluetoothFileSender : IDisposable
 {
+    private static readonly ILogger Log = EasyLogger.Log.ForContext<BluetoothFileSender>();
+
     private static readonly Guid ServiceUuid = new("e8a1c470-6d5f-4e8a-9b23-a7f06e9c1d2e");
 
     private readonly string _localFingerprint;
@@ -128,11 +132,13 @@ public class BluetoothFileSender : IDisposable
         }
         catch (OperationCanceledException)
         {
+            Log.Information("Bluetooth-Transfer abgebrochen an {Address}", btAddress);
             StatusChanged?.Invoke(this, TransferStatus.Cancelled);
             throw;
         }
-        catch
+        catch (Exception ex)
         {
+            Log.Error(ex, "Bluetooth-Transfer fehlgeschlagen an {Address}", btAddress);
             StatusChanged?.Invoke(this, TransferStatus.Failed);
             throw;
         }

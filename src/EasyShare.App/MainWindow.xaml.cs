@@ -17,7 +17,9 @@ using EasyShare.App.ViewModels;
 using EasyShare.Core.Config;
 using EasyShare.Core.Crypto;
 using EasyShare.Core.Discovery;
+using EasyShare.Core.Logging;
 using EasyShare.Core.Models;
+using EasyShare.Core.Network;
 using EasyShare.Core.Security;
 using EasyShare.Core.Sessions;
 using EasyShare.Transport.FileTransfer;
@@ -27,6 +29,7 @@ using EasyShare.App.Views;
 using EasyShare.App.Localization;
 using H.NotifyIcon;
 using Microsoft.Win32;
+using Serilog;
 using CoreProtocolType = EasyShare.Core.Models.ProtocolType;
 using EasyShare.App.Services;
 
@@ -179,7 +182,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
                 SaveConfig();
             }
         }
-        catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[EasyShare] LoadConfig failed: {ex.Message}"); _config = new AppConfig(); }
+        catch (Exception ex) { Log.Warning(ex, "LoadConfig fehlgeschlagen"); _config = new AppConfig(); }
     }
 
     private void RestoreWindowBounds()
@@ -213,7 +216,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
             Directory.CreateDirectory(dir);
             File.WriteAllText(_configPath, System.Text.Json.JsonSerializer.Serialize(_config));
         }
-        catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[EasyShare] SaveConfig failed: {ex.Message}"); }
+        catch (Exception ex) { Log.Warning(ex, "SaveConfig fehlgeschlagen"); }
     }
 
     private void InitializeServices()
@@ -265,7 +268,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"[EasyShare] Context menu registration failed: {ex.Message}");
+            Log.Warning(ex, "Context menu registration failed");
         }
     }
 
@@ -296,7 +299,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
                     }, _cts.Token);
                 }
                 catch (OperationCanceledException) { break; }
-                catch { await Task.Delay(1000); }
+                catch (Exception ex) { Log.Debug(ex, "NamedPipe listener loop error, retrying"); await Task.Delay(1000); }
             }
         });
     }
@@ -311,7 +314,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         Task.Run(() =>
         {
             try { _btServer?.Start(_config.DeviceAlias, _fingerprint, _config.DefaultSavePath); }
-            catch { }
+            catch (Exception ex) { Log.Warning(ex, "BluetoothServer Start fehlgeschlagen"); }
         });
         StatusText.Text = Loc.Tr("Main.StatusReady");
     }
@@ -349,7 +352,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"[EasyShare] ApplyTheme failed: {ex.Message}");
+            Log.Warning(ex, "ApplyTheme fehlgeschlagen");
         }
     }
 
@@ -480,7 +483,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
                 StatusText.Text = Loc.Tr("Main.StatusDevicesFound", Devices.Count);
             });
         }
-        catch { }
+        catch (Exception ex) { Log.Debug(ex, "OnDeviceFound Dispatcher error"); }
     }
 
     private void OnDeviceSeen(object? sender, DeviceInfo device)
@@ -494,7 +497,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
                     existing.LastSeen = device.LastSeen;
             });
         }
-        catch { }
+        catch (Exception ex) { Log.Debug(ex, "OnDeviceSeen Dispatcher error"); }
     }
 
     private void OnDeviceLost(object? sender, string fingerprint)
@@ -517,7 +520,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
                 UpdateSelectedDeviceText();
             });
         }
-        catch { }
+        catch (Exception ex) { Log.Debug(ex, "OnDeviceLost Dispatcher error"); }
     }
 
     private void AddDeviceButton_Click(object sender, RoutedEventArgs e)
@@ -773,12 +776,22 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
                 }
 
                 var success = false;
+                var wifiBand = WifiInfo.GetCurrentConnection();
+                if (wifiBand is not null)
+                    Log.Information("WiFi-Verbindung: {Phy} {Band} (Kanal {Channel}, Rx {Rx}Mbps, Signal {Signal}%)",
+                        wifiBand.PhyDescription, wifiBand.Band, wifiBand.Channel,
+                        wifiBand.RxRateMbps, wifiBand.SignalQuality);
+                else
+                    Log.Debug("Keine WiFi-Verbindungsinformation verfuegbar");
+
                 for (int ipIdx = 0; ipIdx < candidateIps.Count; ipIdx++)
                 {
                     if (cts.IsCancellationRequested) break;
 
                     var ip = candidateIps[ipIdx];
                     fileSender?.Dispose();
+
+                    Log.Information("Versuche Transfer an {Alias} via {Ip} ({Idx}/{Count})", target.Alias, ip, ipIdx + 1, candidateIps.Count);
 
                     if (ipIdx > 0)
                     {
@@ -797,6 +810,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
                         if (fileSender.LastStatus == TransferStatus.Completed)
                         {
                             success = true;
+                            Log.Information("Transfer erfolgreich an {Alias} via {Ip}", target.Alias, ip);
                             break;
                         }
                     }
@@ -804,8 +818,9 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
                     {
                         throw;
                     }
-                    catch when (fileSender.WasConnectionError && ipIdx < candidateIps.Count - 1)
+                    catch (Exception ipEx) when (fileSender.WasConnectionError && ipIdx < candidateIps.Count - 1)
                     {
+                        Log.Warning(ipEx, "IP {Ip} fehlgeschlagen, naechste IP versuchen", ip);
                         continue;
                     }
                 }
@@ -852,7 +867,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
                         }
                     }
                     catch (OperationCanceledException) { throw; }
-                    catch { }
+                    catch (Exception wfdEx) { Log.Warning(wfdEx, "WiFiDirect fallback fehlgeschlagen fuer {Alias}", target.Alias); }
                     finally
                     {
                         _wfdService?.Disconnect();
@@ -889,7 +904,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
                         success = true;
                     }
                     catch (OperationCanceledException) { throw; }
-                    catch { }
+                    catch (Exception btEx) { Log.Warning(btEx, "Bluetooth fallback fehlgeschlagen fuer {Alias}", target.Alias); }
                 }
 
                 if (!success && !cts.IsCancellationRequested)
@@ -897,6 +912,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
             }
             catch (OperationCanceledException)
             {
+                Log.Information("Transfer an Nutzer abgebrochen: {Target}", target.Alias);
                 Dispatcher.Invoke(() =>
                 {
                     if (transfer.CanCancel)
@@ -910,6 +926,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
             }
             catch (MalwareDetectedException ex)
             {
+                Log.Warning("Malware erkannt: {File}", ex.FileName);
                 Dispatcher.Invoke(() =>
                 {
                     transfer.Status = TransferStatus.Failed;
@@ -921,6 +938,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
             }
             catch (Exception ex)
             {
+                Log.Error(ex, "Transfer fehlgeschlagen an {Alias} (IPs: {IPs})", target.Alias, string.Join(", ", candidateIps));
                 Dispatcher.Invoke(() =>
                 {
                     transfer.Status = TransferStatus.Failed;
@@ -1149,7 +1167,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
             if (File.Exists(dest)) File.Delete(dest);
             File.Move(filePath, dest);
         }
-        catch { }
+        catch (Exception ex) { Log.Warning(ex, "Quarantine fehlgeschlagen fuer {File}", filePath); }
     }
 
     private void OnUploadProgress(object? sender, UploadProgressEventArgs e)
@@ -1170,7 +1188,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
                 }
             });
         }
-        catch { }
+        catch (Exception ex) { Log.Debug(ex, "OnUploadProgress Dispatcher error"); }
     }
 
     private void OnUploadCancelled(object? sender, UploadCancelledEventArgs e)
@@ -1187,7 +1205,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
                 }
             });
         }
-        catch { }
+        catch (Exception ex) { Log.Debug(ex, "OnUploadCancelled Dispatcher error"); }
     }
 
     private void CancelTransfer_Click(object sender, RoutedEventArgs e)
@@ -1219,7 +1237,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
             if (socket.LocalEndPoint is IPEndPoint ep)
                 return ep.Address.ToString();
         }
-        catch { }
+        catch (Exception ex) { Log.Debug(ex, "GetLocalIpAddress fehlgeschlagen"); }
 
         return IPAddress.Loopback.ToString();
     }
@@ -1262,8 +1280,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
             _config.WindowHeight = Height;
             SaveConfig();
         }
-        catch { }
-        _trayIcon?.Dispose();
+        catch (Exception ex) { Log.Warning(ex, "Cleanup SaveConfig fehlgeschlagen"); }
         _trayIcon = null;
         _discovery?.DeviceFound -= OnDeviceFound;
         _discovery?.DeviceSeen -= OnDeviceSeen;
@@ -1278,6 +1295,8 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         _certificate?.Dispose();
         _amsiScanner.Dispose();
         _cts.Cancel();
+        Log.Information("EasyShare beendet");
+        EasyLogger.Close();
     }
 
     private void CheckForUpdatesAsync()
@@ -1455,7 +1474,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
                 StatusText.Text = Loc.Tr("Main.StatusDevicesFound", Devices.Count);
             });
         }
-        catch { }
+        catch (Exception ex) { Log.Debug(ex, "OnBtDeviceFound Dispatcher error"); }
     }
 
     private void OnBtDeviceSeen(object? sender, DeviceInfo device)
@@ -1471,7 +1490,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
                     existing.LastSeen = device.LastSeen;
             });
         }
-        catch { }
+        catch (Exception ex) { Log.Debug(ex, "OnBtDeviceSeen Dispatcher error"); }
     }
 
     private void OnBtDeviceLost(object? sender, string btAddress)
@@ -1493,7 +1512,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
                 UpdateSelectedDeviceText();
             });
         }
-        catch { }
+        catch (Exception ex) { Log.Debug(ex, "OnBtDeviceLost Dispatcher error"); }
     }
 
     private void OnWfdDeviceFound(object? sender, DeviceInfo device)
@@ -1531,7 +1550,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
                 StatusText.Text = Loc.Tr("Main.StatusDevicesFound", Devices.Count);
             });
         }
-        catch { }
+        catch (Exception ex) { Log.Debug(ex, "OnWfdDeviceFound Dispatcher error"); }
     }
 
     private void OnWfdDeviceSeen(object? sender, DeviceInfo device)
@@ -1545,7 +1564,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
                     existing.LastSeen = device.LastSeen;
             });
         }
-        catch { }
+        catch (Exception ex) { Log.Debug(ex, "OnWfdDeviceSeen Dispatcher error"); }
     }
 
     private void OnBtUploadRequested(object? sender, BluetoothUploadRequestEventArgs e)

@@ -2,8 +2,11 @@ using System.IO;
 using System.Windows;
 using EasyShare.App.Localization;
 using EasyShare.Core.Config;
+using EasyShare.Core.Logging;
+using EasyShare.Core.Network;
 using EasyShare.Shell;
 using Microsoft.Win32;
+using Serilog;
 
 namespace EasyShare.App.Views;
 
@@ -35,6 +38,37 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
         LanguageComboBox.SelectedIndex = _config.Language == "en" ? 1 : 0;
 
         UpdateContextMenuButton();
+        LoadWifiInfo();
+    }
+
+    private void LoadWifiInfo()
+    {
+        var wifi = WifiInfo.GetCurrentConnection();
+        if (wifi is null)
+        {
+            WifiInfoText.Text = "Keine WLAN-Verbindung erkannt.";
+            return;
+        }
+
+        var bandHint = wifi.Band == WifiBand.Band24
+            ? "\nHinweis: Du bist mit 2,4GHz verbunden. Für schnellere Transfers: Adapter-Einstellungen > Preferred Band = 5GHz."
+            : "";
+        WifiInfoText.Text = $"WLAN: {wifi.PhyDescription} ({wifi.Band}), Kanal {wifi.Channel}\n" +
+            $"Rx: {wifi.RxRateMbps} Mbit/s, Tx: {wifi.TxRateMbps} Mbit/s, Signal: {wifi.SignalQuality}%{bandHint}";
+    }
+
+    private void OpenLogs_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = EasyLogger.LogDirectory,
+                UseShellExecute = true,
+                Verb = "open",
+            });
+        }
+        catch { }
     }
 
     private void UpdateContextMenuButton()
@@ -136,7 +170,7 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
             var json = System.Text.Json.JsonSerializer.Serialize(_config);
             File.WriteAllText(_configPath, json);
         }
-        catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[EasyShare] SaveSettings failed: {ex.Message}"); }
+        catch (Exception ex) { Log.Warning(ex, "SaveSettings fehlgeschlagen"); }
 
         Close();
     }
